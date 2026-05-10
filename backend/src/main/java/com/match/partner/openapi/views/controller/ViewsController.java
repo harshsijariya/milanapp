@@ -23,8 +23,11 @@ public class ViewsController {
     }
 
     @GetMapping
-    public ResponseEntity<List<ViewsDto>> getViews(@RequestAttribute("username") String userName) {
-        List<ViewsDto> views = viewsService.getViews(userName);
+    public ResponseEntity<org.springframework.data.domain.Page<ViewsDto>> getViews(
+            @RequestAttribute("username") String userName,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
+        org.springframework.data.domain.Page<ViewsDto> views = viewsService.getViews(userName, page, size);
         return ResponseEntity.ok(views);
     }
 }

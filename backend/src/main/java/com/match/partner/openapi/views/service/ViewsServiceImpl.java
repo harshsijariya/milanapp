@@ -11,6 +11,9 @@ import com.match.partner.openapi.views.model.dto.ViewsRequest;
 import com.match.partner.openapi.views.repository.ViewsRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -69,12 +72,12 @@ public class ViewsServiceImpl implements ViewsServiceInterface {
         viewsRepository.save(views);
     }
 
-    public List<ViewsDto> getViews(String userName) {
+    public Page<ViewsDto> getViews(String userName, int page, int size) {
         Optional<UserProfile> userProfileOptional = userProfileRepository.findByEmail(userName);
         int profileId = userProfileOptional.get().getId();
-        return viewsRepository.findByIdProfileIdOrderByViewedAtDesc(profileId).stream()
-                .map(this::convertToDto)
-                .collect(Collectors.toList());
+        Pageable pageable = PageRequest.of(page, size);
+        return viewsRepository.findByIdProfileIdOrderByViewedAtDesc(profileId, pageable)
+                .map(this::convertToDto);
     }
 
 

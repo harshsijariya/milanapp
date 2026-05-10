@@ -206,6 +206,63 @@ export default function HomeScreen() {
     );
   };
 
+  const renderRecentVisitorCard = (profile: any) => {
+    const profData = profile.profile || profile;
+    const isLiked = likedProfileIds.has(Number(profData.id));
+
+    let ageStr = "";
+    if (profData.dateOfBirth || profData.date_of_birth) {
+      const dobStr = profData.dateOfBirth || profData.date_of_birth;
+      const dob = new Date(dobStr);
+      const diffMs = Date.now() - dob.getTime();
+      const ageDate = new Date(diffMs);
+      const calculatedAge = Math.abs(ageDate.getUTCFullYear() - 1970);
+      if (!isNaN(calculatedAge)) ageStr = `${calculatedAge} yrs`;
+    }
+
+    const name = profData.name ? `${profData.name.split(' ')[0]} ${profData.name.split(' ')[1] ? profData.name.split(' ')[1][0] : ''}` : "Anonymous";
+    const heightStr = profData.height ? `, ${profData.height}` : "";
+    const religionStr = profData.religion ? `, ${profData.religion}` : "";
+    const casteStr = profData.caste ? `,\n${profData.caste}` : "";
+    const locationStr = profData.state ? `,\n${profData.state}` : (profData.city ? `,\n${profData.city}` : "");
+
+    return (
+      <TouchableOpacity
+        key={profData.id}
+        style={styles.visitorCard}
+        onPress={() => {
+          if (profData.id) router.push(`/profile-detail/${profData.id}`);
+        }}
+        activeOpacity={0.9}
+      >
+        <View style={styles.visitorImageContainer}>
+          <Image source={getProfileImage(profData)} style={styles.visitorImage} />
+          <View style={styles.visitorPremiumBadge}>
+            <Ionicons name="star" size={10} color="#FFFFFF" />
+          </View>
+        </View>
+
+        <View style={styles.visitorInfo}>
+          <Text style={styles.visitorName} numberOfLines={1}>{name}</Text>
+          <Text style={styles.visitorDetails} numberOfLines={4}>
+            {ageStr}{heightStr}{religionStr}{casteStr}{locationStr}
+          </Text>
+
+          <TouchableOpacity 
+            style={[styles.visitorConnectBtn, isLiked && { borderColor: '#10B981' }]}
+            onPress={() => !isLiked && handleLike(profData.id)}
+            activeOpacity={isLiked ? 1 : 0.8}
+          >
+            <Ionicons name="checkmark" size={14} color={isLiked ? "#10B981" : "#0F766E"} />
+            <Text style={[styles.visitorConnectText, isLiked && { color: '#10B981' }]}>
+              {isLiked ? 'Connected' : 'Connect Now'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
   const renderSmallProfile = (profile: any) => (
     <TouchableOpacity
       key={profile.id || profile.profile?.id}
@@ -293,60 +350,16 @@ export default function HomeScreen() {
           />
         </View>
 
-        {/* Received Likes Section */}
-        {receivedLikes.length > 0 && (
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <View style={styles.sectionTitleContainer}>
-                <LinearGradient
-                  colors={["#EC4899", "#F43F5E"]}
-                  style={styles.sectionIcon}
-                >
-                  <Ionicons name="heart" size={20} color="#FFFFFF" />
-                </LinearGradient>
-                <View>
-                  <Text style={styles.sectionTitle}>Received Likes</Text>
-                  <Text style={styles.sectionSubtitle}>
-                    {receivedLikes.length} people liked you
-                  </Text>
-                </View>
-              </View>
-              <TouchableOpacity onPress={() => router.push("/(tabs)/likes")}>
-                <Text style={styles.viewAllText}>View All</Text>
-              </TouchableOpacity>
-            </View>
 
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.smallList}
-            >
-              {receivedLikes.map(renderSmallProfile)}
-            </ScrollView>
-          </View>
-        )}
 
         {/* Viewed By Section (Recent Visitors) - ALWAYS SHOW */}
         <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <View style={styles.sectionTitleContainer}>
-              <LinearGradient
-                colors={["#8B5CF6", "#6366F1"]}
-                style={styles.sectionIcon}
-              >
-                <Ionicons name="eye" size={20} color="#FFFFFF" />
-              </LinearGradient>
-              <View>
-                <Text style={styles.sectionTitle}>Viewed By</Text>
-                <Text style={styles.sectionSubtitle}>
-                  {recentVisitors.length > 0
-                    ? `${recentVisitors.length} profile views`
-                    : "No views yet"}
-                </Text>
-              </View>
-            </View>
-            <TouchableOpacity>
-              <Text style={styles.viewAllText}>View All</Text>
+          <View style={[styles.sectionHeader, { paddingHorizontal: 24, marginBottom: 12 }]}>
+            <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#1F2937' }}>
+              Recent Visitors ({recentVisitors.length})
+            </Text>
+            <TouchableOpacity onPress={() => router.push("/recent-visitors")}>
+              <Text style={{ fontSize: 14, fontWeight: '600', color: '#0F766E' }}>See All {">"}</Text>
             </TouchableOpacity>
           </View>
 
@@ -356,7 +369,7 @@ export default function HomeScreen() {
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.smallList}
             >
-              {recentVisitors.map(renderSmallProfile)}
+              {recentVisitors.map(renderRecentVisitorCard)}
             </ScrollView>
           ) : (
             <View style={styles.emptySmallSection}>
@@ -374,23 +387,12 @@ export default function HomeScreen() {
         {/* All Profiles Section */}
         {allProfiles.length > 0 && (
           <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <View style={styles.sectionTitleContainer}>
-                <LinearGradient
-                  colors={["#10B981", "#059669"]}
-                  style={styles.sectionIcon}
-                >
-                  <Ionicons name="people" size={20} color="#FFFFFF" />
-                </LinearGradient>
-                <View>
-                  <Text style={styles.sectionTitle}>All Profiles</Text>
-                  <Text style={styles.sectionSubtitle}>
-                    Explore all members
-                  </Text>
-                </View>
-              </View>
-              <TouchableOpacity onPress={() => router.push("/search")}>
-                <Text style={styles.viewAllText}>View All</Text>
+            <View style={[styles.sectionHeader, { paddingHorizontal: 24, marginBottom: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}>
+              <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#1F2937' }}>
+                All Profiles ({allProfiles.length})
+              </Text>
+              <TouchableOpacity onPress={() => router.push("/all-profiles")}>
+                <Text style={{ fontSize: 14, fontWeight: '600', color: '#0F766E' }}>See All {">"}</Text>
               </TouchableOpacity>
             </View>
 
@@ -399,7 +401,7 @@ export default function HomeScreen() {
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.smallList}
             >
-              {allProfiles.map(renderSmallProfile)}
+              {allProfiles.map(renderRecentVisitorCard)}
             </ScrollView>
           </View>
         )}
@@ -704,5 +706,66 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#6B7280",
     textAlign: "center",
+  },
+  visitorCard: {
+    width: 170,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    overflow: "hidden",
+  },
+  visitorImageContainer: {
+    width: '100%',
+    height: 180,
+    position: 'relative',
+    backgroundColor: '#E5E7EB',
+  },
+  visitorImage: {
+    width: '100%',
+    height: '100%',
+  },
+  visitorPremiumBadge: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    backgroundColor: '#EF4444',
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  visitorInfo: {
+    padding: 12,
+  },
+  visitorName: {
+    fontSize: 15,
+    fontWeight: "bold",
+    color: "#1F2937",
+    marginBottom: 4,
+  },
+  visitorDetails: {
+    fontSize: 12,
+    color: "#6B7280",
+    lineHeight: 16,
+    marginBottom: 12,
+    height: 64,
+  },
+  visitorConnectBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    borderWidth: 1,
+    borderColor: '#0F766E',
+    borderRadius: 20,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+  },
+  visitorConnectText: {
+    color: '#0F766E',
+    fontSize: 13,
+    fontWeight: 'bold',
   },
 });

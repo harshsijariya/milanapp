@@ -138,7 +138,7 @@ export const shortlistAPI = {
 };
 
 export const viewsAPI = {
-  getProfileViews: () => api.get("/views"),
+  getProfileViews: (page = 0, size = 10) => api.get(`/views?page=${page}&size=${size}`),
   addView: (data: { viewedId: number | string }) => api.post("/views", data),
 };
 
