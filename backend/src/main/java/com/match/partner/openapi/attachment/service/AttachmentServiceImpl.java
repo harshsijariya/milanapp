@@ -77,4 +77,30 @@ public class AttachmentServiceImpl implements AttachmentServiceInterface {
 
         return response;
     }
+
+    public String setPrimary(Integer attachmentId, String userName) {
+        UserProfile userProfile = userProfileRepository.findByEmail(userName)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        Integer userId = userProfile.getId();
+
+        java.util.List<AttachmentDao> attachments = attachmentRepository.findByUserId(userId);
+        boolean found = false;
+
+        for (AttachmentDao att : attachments) {
+            if (att.getId().equals(attachmentId)) {
+                att.setIsPrimary(true);
+                found = true;
+            } else {
+                att.setIsPrimary(false);
+            }
+        }
+
+        if (!found) {
+            throw new RuntimeException("Attachment not found or does not belong to user");
+        }
+
+        attachmentRepository.saveAll(attachments);
+        return "Primary photo updated successfully";
+    }
 }

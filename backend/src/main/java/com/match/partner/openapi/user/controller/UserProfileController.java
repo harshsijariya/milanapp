@@ -31,14 +31,14 @@ public class UserProfileController {
 
     @GetMapping("/user")
     public UserProfileDTO getUser(@RequestAttribute("username") String userName){
-       return  userProfileService.getUser(userName);
+        return  userProfileService.getUser(userName);
     }
 
     @GetMapping("/users")
     public Page<UserDto> getUsers(@RequestAttribute("username") String userName,
-                                   @RequestParam(defaultValue = "0") int page,
-                                   @RequestParam(defaultValue = "10") int size) {
-        return userProfileService.getUsers(page, size);
+                                  @RequestParam(defaultValue = "0") int page,
+                                  @RequestParam(defaultValue = "10") int size) {
+        return userProfileService.getUsers(userName, page, size);
     }
 
     @GetMapping("/users/{id}")
@@ -50,7 +50,7 @@ public class UserProfileController {
     @PatchMapping("/user/profile")
     public ResponseEntity<UserProfile> updateUserProfile(@RequestBody UserProfileDTO userProfileDTO,
                                                          @RequestAttribute("username") String userName) {
-         userProfileService.updateUserProfile(userProfileDTO, userName);
+        userProfileService.updateUserProfile(userProfileDTO, userName);
 
         return null;
     }

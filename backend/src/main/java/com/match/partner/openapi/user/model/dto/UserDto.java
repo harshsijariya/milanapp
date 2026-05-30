@@ -21,4 +21,6 @@ public class UserDto {
     private String annualIncome;
     private String education;
     private String profileImage;
+    private Boolean isLiked;
+    private Boolean isShortlisted;
 }

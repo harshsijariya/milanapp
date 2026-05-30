@@ -48,11 +48,19 @@ public class S3Controller {
             @RequestParam("fileType") String fileType,
             @RequestParam("originalFileName") String originalFileName,
             @RequestAttribute("username") String userName) {
-        
+
         String fileName = UUID.randomUUID().toString() + "_" + originalFileName;
         log.info("Generating upload URL for user: {}, fileName: {}", userName, fileName);
 
         UploadUrlResponseDto response = attachmentService.generateUploadUrl(fileName, userName, fileType);
+        return ResponseEntity.ok(response);
+    }
+
+    @PutMapping("/{attachmentId}/set-primary")
+    public ResponseEntity<String> setPrimaryImage(
+            @PathVariable Integer attachmentId,
+            @RequestAttribute("username") String userName) {
+        String response = attachmentService.setPrimary(attachmentId, userName);
         return ResponseEntity.ok(response);
     }
 }

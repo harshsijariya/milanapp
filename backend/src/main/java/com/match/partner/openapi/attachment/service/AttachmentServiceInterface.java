@@ -5,4 +5,5 @@ import com.match.partner.openapi.attachment.model.entity.dto.UploadUrlResponseDt
 public interface AttachmentServiceInterface {
     String upload(String fileName, String userName, byte[] fileBytes, String fileType);
     UploadUrlResponseDto generateUploadUrl(String fileName, String userName, String fileType);
+    String setPrimary(Integer attachmentId, String userName);
 }

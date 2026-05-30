@@ -19,7 +19,7 @@ public interface UserProfileServiceInterface {
     void updateUserProfile(UserProfileDTO userProfileDTO, String userName);
     void registerUserProfile(UserProfileDTO userProfileDTO, String userName);
     UserProfileDTO getUser(String userName);
-    Page<UserDto> getUsers(int page, int size);
+    Page<UserDto> getUsers(String userName, int page, int size);
     UserProfileDTO getUsers(Integer id, String userName);
 
     BasicInfoDTO getBasicInfo(String userName);

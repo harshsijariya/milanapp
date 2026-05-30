@@ -43,7 +43,7 @@ public class UserAuthController {
 
         }
         else {
-               throw new ClientException(HttpStatus.BAD_REQUEST,"Some");
+            throw new ClientException(HttpStatus.BAD_REQUEST,"Some");
         }
     }
 
@@ -56,7 +56,7 @@ public class UserAuthController {
         loginResponse.setExpiresIn(jwtService.getExpirationTime());
         return ResponseEntity.ok(loginResponse);
     }
-    
+
     @PostMapping("/logout")
     public ResponseEntity<String> logout(@RequestHeader("Authorization") String authHeader) {
         if (authHeader != null && authHeader.startsWith("Bearer ")) {
@@ -65,7 +65,7 @@ public class UserAuthController {
         }
         return ResponseEntity.ok("Logged out successfully");
     }
-    
+
 
 }
 

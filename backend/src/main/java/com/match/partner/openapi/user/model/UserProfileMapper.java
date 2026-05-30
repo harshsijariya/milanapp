@@ -98,9 +98,22 @@ public class UserProfileMapper {
                     .map(att -> s3Service.generatePresignedUrl(att.getName()))
                     .collect(Collectors.toList());
             userProfileDTO.setProfileImages(imageUrls);
-            if (!imageUrls.isEmpty()) {
-                userProfileDTO.setProfileImage(imageUrls.get(0));
-            }
+            
+            List<com.match.partner.openapi.user.model.dto.ProfileImageDto> details = attachments.stream()
+                    .map(att -> new com.match.partner.openapi.user.model.dto.ProfileImageDto(
+                            att.getId(),
+                            s3Service.generatePresignedUrl(att.getName()),
+                            att.getIsPrimary() != null && att.getIsPrimary()
+                    ))
+                    .collect(Collectors.toList());
+            userProfileDTO.setProfileImageDetails(details);
+            
+            // Find primary image or fallback to first
+            AttachmentDao primary = attachments.stream()
+                    .filter(att -> att.getIsPrimary() != null && att.getIsPrimary())
+                    .findFirst()
+                    .orElse(attachments.get(0));
+            userProfileDTO.setProfileImage(s3Service.generatePresignedUrl(primary.getName()));
         }
 
         return userProfileDTO;
@@ -127,7 +140,11 @@ public class UserProfileMapper {
         // Fetch attachments and generate GET presigned URL for main image
         List<AttachmentDao> attachments = attachmentRepository.findByUserId(userProfile.getId());
         if (attachments != null && !attachments.isEmpty()) {
-            String mainImageUrl = s3Service.generatePresignedUrl(attachments.get(0).getName());
+            AttachmentDao primary = attachments.stream()
+                    .filter(att -> att.getIsPrimary() != null && att.getIsPrimary())
+                    .findFirst()
+                    .orElse(attachments.get(0));
+            String mainImageUrl = s3Service.generatePresignedUrl(primary.getName());
             userDto.setProfileImage(mainImageUrl);
         }
 

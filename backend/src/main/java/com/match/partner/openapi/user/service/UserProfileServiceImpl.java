@@ -12,6 +12,9 @@ import com.match.partner.openapi.user.model.dto.EducationInfoDTO;
 import com.match.partner.openapi.user.model.dto.FamilyInfoDTO;
 import com.match.partner.openapi.user.model.dto.ReligionInfoDTO;
 import com.match.partner.openapi.user.repository.UserProfileRepository;
+import com.match.partner.openapi.likes.repository.ProfileLikeRepository;
+import com.match.partner.openapi.shortlist.repository.ShortlistRepository;
+import com.match.partner.openapi.shortlist.model.dao.ShortlistId;
 import com.match.partner.openapi.views.service.ViewsServiceInterface;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
@@ -31,6 +34,10 @@ public class UserProfileServiceImpl implements UserProfileServiceInterface {
     private UserProfileMapper userProfileMapper;
     @Autowired
     private ViewsServiceInterface viewsService;
+    @Autowired
+    private ProfileLikeRepository profileLikeRepository;
+    @Autowired
+    private ShortlistRepository shortlistRepository;
 
 
     public UserProfile updateUserProfile(UserProfileDTO dto, UserProfile userProfile) {
@@ -245,12 +252,24 @@ public class UserProfileServiceImpl implements UserProfileServiceInterface {
         return  userProfileMapper.toDto(userProfile);
     }
 
-    public Page<UserDto> getUsers(int page, int size) {
+    public Page<UserDto> getUsers(String userName, int page, int size) {
         Pageable pageable = PageRequest.of(page, size);
         Page<UserProfile> userProfilesPage = userProfileRepository.findAll(pageable);
+        UserProfile currentUser = userProfileRepository.findByEmail(userName)
+                .orElseThrow(() -> new RuntimeException("User not found"));
 
         // Map the Page of UserProfile to a Page of UserDto
-        return userProfilesPage.map(userProfileMapper::toUserDto);
+        return userProfilesPage.map(profile -> {
+            UserDto dto = userProfileMapper.toUserDto(profile);
+            dto.setIsLiked(profileLikeRepository.existsByIdLikerIdAndIdLikedProfileId(currentUser.getId(), profile.getId()));
+            
+            ShortlistId shortlistId = new ShortlistId();
+            shortlistId.setProfileId(currentUser.getId());
+            shortlistId.setShortlistedId(profile.getId());
+            dto.setIsShortlisted(shortlistRepository.existsById(shortlistId));
+            
+            return dto;
+        });
     }
 
 
@@ -259,7 +278,16 @@ public class UserProfileServiceImpl implements UserProfileServiceInterface {
         Optional<UserProfile>  userProfileOptional = userProfileRepository.findByEmail(userName);
         int profileId = userProfileOptional.get().getId();
         viewsService.addView(id,profileId);
-        return  userProfileMapper.toDto(userProfile);
+        
+        UserProfileDTO dto = userProfileMapper.toDto(userProfile);
+        dto.setIsLiked(profileLikeRepository.existsByIdLikerIdAndIdLikedProfileId(profileId, id));
+        
+        ShortlistId shortlistId = new ShortlistId();
+        shortlistId.setProfileId(profileId);
+        shortlistId.setShortlistedId(id);
+        dto.setIsShortlisted(shortlistRepository.existsById(shortlistId));
+        
+        return dto;
     }
 
     @Override

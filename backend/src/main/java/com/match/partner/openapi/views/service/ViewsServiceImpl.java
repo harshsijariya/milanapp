@@ -9,6 +9,9 @@ import com.match.partner.openapi.views.model.dao.ViewsId;
 import com.match.partner.openapi.views.model.dto.ViewsDto;
 import com.match.partner.openapi.views.model.dto.ViewsRequest;
 import com.match.partner.openapi.views.repository.ViewsRepository;
+import com.match.partner.openapi.likes.repository.ProfileLikeRepository;
+import com.match.partner.openapi.shortlist.repository.ShortlistRepository;
+import com.match.partner.openapi.shortlist.model.dao.ShortlistId;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.data.domain.Page;
@@ -26,6 +29,8 @@ public class ViewsServiceImpl implements ViewsServiceInterface {
     private final ViewsRepository viewsRepository;
     private final UserProfileRepository userProfileRepository;
     private final UserMapper userMapper;
+    private final ProfileLikeRepository profileLikeRepository;
+    private final ShortlistRepository shortlistRepository;
 
 
     public void addView(ViewsRequest request) {
@@ -59,7 +64,7 @@ public class ViewsServiceImpl implements ViewsServiceInterface {
     public void addView(int profileId, String userName) {
         UserProfile viewedBy = userProfileRepository.findByEmail(userName)
                 .orElseThrow(() -> new RuntimeException("User not found: " + userName));
-        
+
         Views views = new Views();
         ViewsId id = new ViewsId();
         id.setProfileId(profileId);
@@ -74,16 +79,25 @@ public class ViewsServiceImpl implements ViewsServiceInterface {
 
     public Page<ViewsDto> getViews(String userName, int page, int size) {
         Optional<UserProfile> userProfileOptional = userProfileRepository.findByEmail(userName);
-        int profileId = userProfileOptional.get().getId();
+        UserProfile currentUser = userProfileOptional.get();
+        int profileId = currentUser.getId();
         Pageable pageable = PageRequest.of(page, size);
         return viewsRepository.findByIdProfileIdOrderByViewedAtDesc(profileId, pageable)
-                .map(this::convertToDto);
+                .map(views -> convertToDto(views, currentUser.getId()));
     }
 
 
-    private ViewsDto convertToDto(Views views) {
+    private ViewsDto convertToDto(Views views, int currentUserId) {
         ViewsDto dto = new ViewsDto();
         UserDto viewedProfileDto = userMapper.toUserDto(views.getViewedBy());
+        
+        viewedProfileDto.setIsLiked(profileLikeRepository.existsByIdLikerIdAndIdLikedProfileId(currentUserId, views.getViewedBy().getId()));
+        
+        ShortlistId shortlistId = new ShortlistId();
+        shortlistId.setProfileId(currentUserId);
+        shortlistId.setShortlistedId(views.getViewedBy().getId());
+        viewedProfileDto.setIsShortlisted(shortlistRepository.existsById(shortlistId));
+
         dto.setViewedBy(viewedProfileDto);
         dto.setViewedAt(views.getViewedAt());
 

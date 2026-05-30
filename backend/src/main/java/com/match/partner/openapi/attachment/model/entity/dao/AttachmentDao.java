@@ -14,4 +14,7 @@ public class AttachmentDao {
     private String type;
     private String path;
     private Integer userId;
+    
+    @Column(name = "is_primary", columnDefinition = "BOOLEAN DEFAULT FALSE")
+    private Boolean isPrimary = false;
 }

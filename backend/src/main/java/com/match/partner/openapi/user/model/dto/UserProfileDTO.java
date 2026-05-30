@@ -65,7 +65,10 @@ public class UserProfileDTO {
     private String organization;
     private LocalDateTime occupationStartDate;
     private LocalDateTime lastActive;
-    
+
     private String profileImage;
     private List<String> profileImages;
+    private List<ProfileImageDto> profileImageDetails;
+    private Boolean isLiked;
+    private Boolean isShortlisted;
 }
