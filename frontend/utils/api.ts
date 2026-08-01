@@ -1,25 +1,52 @@
 import axios from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
+import Constants from "expo-constants";
 
-// Get backend URL based on platform
+const BACKEND_PORT = 8080;
+
+/**
+ * The host the JS bundle was served from, e.g. "192.168.1.14:8081".
+ *
+ * Metro already knows the machine's current address, so deriving the backend
+ * host from it means the app follows the laptop across networks instead of
+ * pointing at whatever IP happened to be baked into .env. Hardcoded LAN
+ * addresses die every time you switch Wi-Fi or drop a personal hotspot.
+ */
+const metroHost = (): string | null => {
+  const uri =
+    Constants.expoConfig?.hostUri ??
+    (Constants.expoGoConfig as any)?.debuggerHost ??
+    (Constants.manifest2 as any)?.extra?.expoGo?.debuggerHost ??
+    null;
+
+  if (!uri) return null;
+  const host = String(uri).split("/")[0].split(":")[0];
+  return host || null;
+};
+
 const getBackendUrl = () => {
-  // Check if EXPO_PUBLIC_BACKEND_URL is set
-  if (process.env.EXPO_PUBLIC_BACKEND_URL) {
-    return process.env.EXPO_PUBLIC_BACKEND_URL;
+  // In development, follow Metro. This is deliberately checked before the env
+  // var: a stale EXPO_PUBLIC_BACKEND_URL is the usual reason the app cannot
+  // reach the API after a network change.
+  if (__DEV__) {
+    const host = metroHost();
+    if (host && host !== "localhost" && host !== "127.0.0.1") {
+      return `http://${host}:${BACKEND_PORT}`;
+    }
+
+    // Metro on localhost means the bundle came over `adb reverse` (Android) or
+    // a simulator loopback. Android's emulator reaches the host via 10.0.2.2.
+    if (Platform.OS === "android") {
+      return `http://10.0.2.2:${BACKEND_PORT}`;
+    }
+    return `http://localhost:${BACKEND_PORT}`;
   }
 
-  // Fallback URLs by platform
-  if (Platform.OS === "android") {
-    // Android emulator uses 10.0.2.2 to reach host machine, but physical device uses LAN IP
-    return "http://172.20.10.7:8080";
-  } else if (Platform.OS === "ios") {
-    // iOS simulator can use localhost, but physical uses LAN IP
-    return "http://172.20.10.7:8080";
-  } else {
-    // Web
-    return "http://172.20.10.7:8080";
-  }
+  // Release builds use the configured URL.
+  return (
+    process.env.EXPO_PUBLIC_BACKEND_URL ?? `http://localhost:${BACKEND_PORT}`
+  );
 };
 
 const BACKEND_URL = getBackendUrl();
@@ -74,23 +101,48 @@ api.interceptors.response.use(
     return response;
   },
   (error) => {
-    console.error("❌ API Error:");
-    console.error("Message:", error.message);
-    console.error("Status:", error.response?.status);
-    console.error("URL:", error.config?.url);
-    console.error("Data:", error.response?.data);
-    console.error("Full Error:", error);
+    // One line per failure. Dumping the whole axios error object buried real
+    // problems under hundreds of lines of request/response internals.
+    const status = error.response?.status ?? "no response";
+    const url = error.config?.url ?? "?";
+    const body = error.response?.data;
+    console.error(
+      `❌ API ${error.config?.method?.toUpperCase() ?? ""} ${url} → ${status}`,
+      typeof body === "string" ? body : JSON.stringify(body ?? error.message),
+    );
     return Promise.reject(error);
   },
 );
 
+/**
+ * True when a like/connect failed only because it already exists.
+ *
+ * The backend answers a duplicate like with 400 "You have already liked this
+ * profile." From the user's point of view the desired state is already true, so
+ * callers should treat this as success rather than surfacing an error and
+ * rolling back the button.
+ */
+export const isAlreadyLiked = (error: any): boolean => {
+  if (error?.response?.status !== 400) return false;
+  const body = error.response?.data;
+  const text =
+    typeof body === "string" ? body : (body?.message ?? body?.detail ?? "");
+  return /already/i.test(String(text));
+};
+
 export const authAPI = {
-  register: (data: { email: string; password: string; name: string }) =>
-    api.post("/auth/register", data),
+  register: (data: {
+    email: string;
+    password: string;
+    name: string;
+    mobileNo?: string;
+  }) => api.post("/auth/signup", data),
   login: (data: { email: string; password: string }) =>
     api.post("/auth/login", data),
-  googleAuth: (data: { email: string; name: string; google_id: string }) =>
-    api.post("/auth/google", data),
+  // Sends Google's signed ID token; the backend verifies it and returns our own
+  // JWT. Identity fields are intentionally not sent - the server derives them
+  // from the verified token so they cannot be spoofed by the client.
+  googleAuth: (data: { idToken: string }) => api.post("/auth/google", data),
 };
 
 export const profileAPI = {
@@ -100,7 +152,7 @@ export const profileAPI = {
   getProfiles: (page = 0, size = 20) =>
     api.get(`/users?page=${page}&size=${size}`),
   getProfile: (id: string | number) => api.get(`/users/${id}`),
-  
+
   // Split GET Endpoints
   getBasicInfo: () => api.get("/user/profile/basic"),
   getContactInfo: () => api.get("/user/profile/contact"),
@@ -112,7 +164,8 @@ export const profileAPI = {
   updateBasicInfo: (data: any) => api.patch("/user/profile/basic", data),
   updateContactInfo: (data: any) => api.patch("/user/profile/contact", data),
   updateReligionInfo: (data: any) => api.patch("/user/profile/religion", data),
-  updateEducationInfo: (data: any) => api.patch("/user/profile/education", data),
+  updateEducationInfo: (data: any) =>
+    api.patch("/user/profile/education", data),
   updateFamilyInfo: (data: any) => api.patch("/user/profile/family", data),
 };
 
@@ -138,8 +191,57 @@ export const shortlistAPI = {
 };
 
 export const viewsAPI = {
-  getProfileViews: (page = 0, size = 10) => api.get(`/views?page=${page}&size=${size}`),
-  addView: (data: { viewedId: number | string }) => api.post("/views", data),
+  getProfileViews: (page = 0, size = 10) =>
+    api.get(`/views?page=${page}&size=${size}`),
+  // Backend accepts either `profileId` or `viewedId` for the viewed profile.
+  addView: (
+    data: { viewedId: number | string } | { profileId: number | string },
+  ) => api.post("/views", data),
+};
+
+export const referenceAPI = {
+  /** Every dropdown list in one call - the profile form needs a dozen at once. */
+  allOptions: () => api.get("/reference/options"),
+  options: (category: string) => api.get(`/reference/options/${category}`),
+  states: () => api.get("/reference/states"),
+  cities: (params: { stateId?: number; stateCode?: string; search?: string }) =>
+    api.get("/reference/cities", { params }),
+};
+
+export const notificationAPI = {
+  /** Send the device's FCM token so the backend can push to it. */
+  registerToken: (data: { token: string; platform: string }) =>
+    api.post("/notifications/token", data),
+  /** Called on logout so the next account here does not inherit these pushes. */
+  unregisterToken: (data: { token: string }) =>
+    api.delete("/notifications/token", { data }),
+  list: (page = 0, size = 20) =>
+    api.get(`/notifications?page=${page}&size=${size}`),
+  unreadCount: () => api.get("/notifications/unread-count"),
+  markAllRead: () => api.post("/notifications/read-all"),
+};
+
+export const attachmentAPI = {
+  generateUploadUrl: (fileType: string, originalFileName: string) =>
+    api.get(
+      `/attachment/generate-upload-url?fileType=${encodeURIComponent(fileType)}&originalFileName=${encodeURIComponent(originalFileName)}`,
+    ),
+  uploadFile: async (formData: FormData) => {
+    const token = await AsyncStorage.getItem("auth_token");
+    const response = await fetch(`${API_URL}/attachment/upload`, {
+      method: "POST",
+      body: formData,
+      headers: {
+        Authorization: token ? `Bearer ${token}` : "",
+        // Do NOT set Content-Type here, let fetch generate it with the boundary!
+      },
+    });
+    if (!response.ok) {
+      throw new Error("Upload failed");
+    }
+    return response.text();
+  },
+  setPrimaryImage: (id: number) => api.put(`/attachment/${id}/set-primary`),
 };
 
 export default api;

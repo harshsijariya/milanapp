@@ -1,18 +1,21 @@
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, Platform, Alert } from 'react-native';
 import { Image } from 'expo-image';
 import { useState, useEffect } from 'react';
-import { useRouter } from 'expo-router';
+
 import { viewsAPI, likeAPI } from '../utils/api';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useGuardedRouter } from '../utils/useGuardedRouter';
+import { confirmAction } from '../utils/confirm';
 
 export default function RecentVisitorsScreen() {
-  const router = useRouter();
+  const router = useGuardedRouter();
   const [visitors, setVisitors] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(true);
-  const [likedProfileIds, setLikedProfileIds] = useState<Set<number>>(new Set());
+  // Map of profileId -> like status ('PENDING' | 'ACCEPTED' | 'REJECTED')
+  const [likeStatuses, setLikeStatuses] = useState<Record<string, string>>({});
 
   useEffect(() => {
     loadVisitors();
@@ -57,12 +60,13 @@ export default function RecentVisitorsScreen() {
     try {
       await likeAPI.likeProfile(profileId);
       Alert.alert("Success", "Interest sent successfully! ❤️");
-      setLikedProfileIds((prev) => new Set(prev).add(Number(profileId)));
+      // New likes are created as PENDING in the backend
+      setLikeStatuses((prev) => ({ ...prev, [String(profileId)]: 'PENDING' }));
     } catch (error: any) {
-      const errorMsg = error.response?.data?.detail || typeof error.response?.data === 'string' ? error.response.data : "";
-      if (errorMsg && errorMsg.toLowerCase().includes('already')) {
-        setLikedProfileIds((prev) => new Set(prev).add(Number(profileId)));
-        Alert.alert("Connected", "You are already connected with this profile.");
+      const errorMsg = error.response?.data?.detail || (typeof error.response?.data === 'string' ? error.response.data : "");
+      if (errorMsg && typeof errorMsg === 'string' && errorMsg.toLowerCase().includes('already')) {
+        setLikeStatuses((prev) => ({ ...prev, [String(profileId)]: 'PENDING' }));
+        Alert.alert("Pending", "You have already sent interest to this profile.");
       } else {
         Alert.alert(
           "Error",
@@ -72,6 +76,25 @@ export default function RecentVisitorsScreen() {
     }
   };
 
+  // Disconnect: deletes the profile_likes row on the backend (either direction),
+  // so interest can be sent again afterwards. 'NONE' marks it locally cleared
+  // because the list item still carries the old status from the API response.
+  const handleDisconnect = (profileId: number | string) => {
+    confirmAction(
+      'Disconnect',
+      'Remove this connection? You can send interest again later.',
+      'Disconnect',
+      async () => {
+        try {
+          await likeAPI.unlikeProfile(profileId);
+          setLikeStatuses((prev) => ({ ...prev, [String(profileId)]: 'NONE' }));
+        } catch (error: any) {
+          Alert.alert('Error', error.response?.data?.detail || 'Failed to disconnect');
+        }
+      }
+    );
+  };
+
   const getProfileImage = (profile: any) => {
     if (profile?.profileImage) return { uri: profile.profileImage };
     if (profile?.profile_image) return { uri: profile.profile_image };
@@ -79,8 +102,17 @@ export default function RecentVisitorsScreen() {
     return require('../assets/images/icon.png');
   };
 
+  // Resolve like status: local state (after tapping) overrides API value
+  const getLikeStatus = (item: any): string | null => {
+    const local = likeStatuses[String(item.id)];
+    if (local) return local === 'NONE' ? null : local;
+    if (item.likeStatus) return String(item.likeStatus).toUpperCase();
+    if (item.isLiked === true) return 'PENDING';
+    return null;
+  };
+
   const renderProfile = ({ item }: any) => {
-    const isLiked = likedProfileIds.has(Number(item.id));
+    const status = getLikeStatus(item);
 
     return (
       <TouchableOpacity
@@ -114,17 +146,33 @@ export default function RecentVisitorsScreen() {
           </View>
 
           <View style={styles.actionRow}>
-            <TouchableOpacity 
-              style={[styles.primaryButton, isLiked && { backgroundColor: '#D1FAE5' }]}
+            <TouchableOpacity
+              style={[
+                styles.primaryButton,
+                status === 'ACCEPTED' && { backgroundColor: '#D1FAE5' },
+                status === 'PENDING' && { backgroundColor: '#FEF3C7' },
+                status === 'REJECTED' && { backgroundColor: '#FEE2E2' },
+              ]}
               onPress={() => {
-                if (!isLiked) handleLike(item.id);
+                if (!status) handleLike(item.id);
+                else handleDisconnect(item.id);
               }}
-              activeOpacity={isLiked ? 1 : 0.8}
+              activeOpacity={0.8}
             >
-              {isLiked ? (
+              {status === 'ACCEPTED' ? (
                 <>
                   <Ionicons name="checkmark" size={14} color="#059669" />
                   <Text style={[styles.primaryButtonText, { color: '#059669' }]}>Connected</Text>
+                </>
+              ) : status === 'PENDING' ? (
+                <>
+                  <Ionicons name="time-outline" size={14} color="#B45309" />
+                  <Text style={[styles.primaryButtonText, { color: '#B45309' }]}>Pending</Text>
+                </>
+              ) : status === 'REJECTED' ? (
+                <>
+                  <Ionicons name="close" size={14} color="#DC2626" />
+                  <Text style={[styles.primaryButtonText, { color: '#DC2626' }]}>Declined</Text>
                 </>
               ) : (
                 <>

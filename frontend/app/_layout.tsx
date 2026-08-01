@@ -11,6 +11,8 @@ export default function RootLayout() {
           <Stack.Screen name="login" />
           <Stack.Screen name="register" />
           <Stack.Screen name="profile-setup" />
+          <Stack.Screen name="edit-profile" />
+          <Stack.Screen name="notifications" />
           <Stack.Screen name="(tabs)" />
           <Stack.Screen name="search" />
           <Stack.Screen name="search-results" />

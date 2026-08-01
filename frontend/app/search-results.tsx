@@ -1,12 +1,13 @@
 import { View, Text, StyleSheet, FlatList, Image, TouchableOpacity, Platform } from 'react-native';
-import { useRouter } from 'expo-router';
+
 import { useState, useEffect } from 'react';
 import { profileAPI } from '../utils/api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
+import { useGuardedRouter } from '../utils/useGuardedRouter';
 
 export default function SearchResultsScreen() {
-  const router = useRouter();
+  const router = useGuardedRouter();
   const [profiles, setProfiles] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchCriteria, setSearchCriteria] = useState<any>(null);

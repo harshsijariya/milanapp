@@ -1,0 +1,485 @@
+{
+  "info": {
+    "name": "Match Partner API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Postman collection for Match Partner API - Spring Boot matchmaking application"
+  },
+  "item": [
+    {
+      "name": "Authentication",
+      "item": [
+        {
+          "name": "Ping",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/ping",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "ping"]
+            }
+          }
+        },
+        {
+          "name": "Signup",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Sarah Williams\",\n  \"email\": \"sarah.williams@example.com\",\n  \"mobileNo\": \"4444444444\",\n  \"password\": \"password123\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/signup",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "signup"]
+            }
+          }
+        },
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"john@example.com\",\n  \"password\": \"password123\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "login"]
+            }
+          }
+        },
+        {
+          "name": "Google Login",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/google/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "google", "login"]
+            }
+          }
+        },
+        {
+          "name": "Google Grant Code",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/grantcode?code={{code}}&scope={{scope}}&authuser={{authuser}}&prompt={{prompt}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "grantcode"],
+              "query": [
+                {
+                  "key": "code",
+                  "value": "{{code}}"
+                },
+                {
+                  "key": "scope",
+                  "value": "{{scope}}"
+                },
+                {
+                  "key": "authuser",
+                  "value": "{{authuser}}"
+                },
+                {
+                  "key": "prompt",
+                  "value": "{{prompt}}"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "User Profile",
+      "item": [
+        {
+          "name": "Update User Profile",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"John Doe\",\n  \"gender\": \"Male\",\n  \"maritalStatus\": \"Single\",\n  \"height\": \"5.8\",\n  \"city\": \"New York\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/user/profile",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "user", "profile"]
+            }
+          }
+        },
+        {
+          "name": "Get Users",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users"]
+            }
+          }
+        },
+        {
+          "name": "Get User by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/{{userId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users", "{{userId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Likes",
+      "item": [
+        {
+          "name": "Like Profile",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/likes/{{userId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "likes", "{{userId}}"]
+            }
+          }
+        },
+        {
+          "name": "Unlike Profile",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/likes/{{userId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "likes", "{{userId}}"]
+            }
+          }
+        },
+        {
+          "name": "Get Likes Received",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/likes",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "likes"]
+            }
+          }
+        },
+        {
+          "name": "Accept Like",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/likes/accept/{{userId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "likes", "accept", "{{userId}}"]
+            }
+          }
+        },
+        {
+          "name": "Reject Like",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/likes/reject/{{userId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "likes", "reject", "{{userId}}"]
+            }
+          }
+        },
+        {
+          "name": "Get My Likes Sent",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/likes/me",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "likes", "me"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Shortlist",
+      "item": [
+        {
+          "name": "Get Shortlisted Profiles",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/shortlist",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "shortlist"]
+            }
+          }
+        },
+        {
+          "name": "Add to Shortlist",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/shortlist/{{userId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "shortlist", "{{userId}}"]
+            }
+          }
+        },
+        {
+          "name": "Remove from Shortlist",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/shortlist/{{userId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "shortlist", "{{userId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Attachments",
+      "item": [
+        {
+          "name": "Upload File",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": []
+                },
+                {
+                  "key": "fileName",
+                  "value": "example.jpg",
+                  "type": "text"
+                },
+                {
+                  "key": "fileType",
+                  "value": "image/jpeg",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/attachments/upload",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "attachments", "upload"]
+            }
+          }
+        },
+        {
+          "name": "Download File",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/attachments/download/{{fileName}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "attachments", "download", "{{fileName}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Views",
+      "item": [
+        {
+          "name": "Add View",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"profileId\": 1,\n  \"viewedBy\": 2\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/views",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "views"]
+            }
+          }
+        },
+        {
+          "name": "Get Views",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/views",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "views"]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080",
+      "type": "string"
+    },
+    {
+      "key": "token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "userId",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "fileName",
+      "value": "example.jpg",
+      "type": "string"
+    },
+    {
+      "key": "code",
+      "value": "auth_code_here",
+      "type": "string"
+    },
+    {
+      "key": "scope",
+      "value": "email profile",
+      "type": "string"
+    },
+    {
+      "key": "authuser",
+      "value": "0",
+      "type": "string"
+    },
+    {
+      "key": "prompt",
+      "value": "consent",
+      "type": "string"
+    }
+  ]
+}

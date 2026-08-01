@@ -1,307 +1,325 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform, Alert } from 'react-native';
-import { useRouter } from 'expo-router';
-import { useState, useEffect } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { profileAPI, authAPI } from '../../utils/api';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  Dimensions,
+  ActivityIndicator,
+} from 'react-native';
+import { useState, useCallback } from 'react';
+import { useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { profileAPI, likeAPI } from '../../utils/api';
+import { useGuardedRouter } from '../../utils/useGuardedRouter';
+import { usePhotoUpload } from '../../utils/usePhotoUpload';
+import PhotoCropper from '../../components/PhotoCropper';
+import { unregisterPush } from '../../utils/notifications';
+import { confirmAction } from '../../utils/confirm';
+import CompletionRing, { ringLabel } from '../../components/CompletionRing';
+import DetailCard from '../../components/DetailCard';
+import { rowsFor } from '../../components/sectionRows';
+import PhotoCarousel from '../../components/PhotoCarousel';
+import { useReference } from '../../utils/useReference';
+import {
+  colors,
+  font,
+  radius,
+  spacing,
+  profileCode,
+  profileName,
+  photoHeight,
+} from '../../components/theme';
+
+const { width } = Dimensions.get('window');
+// Derived from PHOTO_ASPECT so the header never re-crops what the user framed.
+const HEADER_H = photoHeight(width);
+
+
+
+
+
 
 export default function ProfileScreen() {
-  const router = useRouter();
+  const router = useGuardedRouter();
+  const insets = useSafeAreaInsets();
+  // Profiles store codes ("VEG"); the cards show labels ("Vegetarian").
+  const { label } = useReference();
+
   const [user, setUser] = useState<any>(null);
+  const [sentCount, setSentCount] = useState(0);
+  const [receivedCount, setReceivedCount] = useState(0);
+  const [connectedCount, setConnectedCount] = useState(0);
 
-  useEffect(() => {
-    loadProfile();
-  }, []);
+  const photos: string[] = user?.profileImages?.length
+    ? user.profileImages
+    : user?.profileImage
+      ? [user.profileImage]
+      : [];
 
-  const loadProfile = async () => {
+  useFocusEffect(
+    useCallback(() => {
+      loadData();
+    }, [])
+  );
+
+  const loadData = async () => {
     try {
-      const response = await profileAPI.getMe();
-      setUser(response.data);
+      const [meRes, sentRes, receivedRes] = await Promise.all([
+        profileAPI.getMe(),
+        likeAPI.getSentLikes(),
+        likeAPI.getReceivedLikes(),
+      ]);
+      setUser(meRes.data);
+
+      const sent = sentRes.data || [];
+      const received = receivedRes.data || [];
+      setSentCount(sent.length);
+      setReceivedCount(received.length);
+
+      const isAccepted = (l: any) => (l.status || '').toLowerCase() === 'accepted';
+      setConnectedCount(sent.filter(isAccepted).length + received.filter(isAccepted).length);
     } catch (error) {
       console.error('Failed to load profile:', error);
     }
   };
 
-  const handleLogout = async () => {
-    const performLogout = async () => {
-      try {
-        await authAPI.logout();
-      } catch (error) {
-        console.error('Logout API failed', error);
-      }
+  const { pick, uploading, cropperProps } = usePhotoUpload({
+    count: photos.length,
+    onUploaded: loadData,
+  });
+
+  const handleLogout = () => {
+    confirmAction('Log out', 'Are you sure you want to log out?', 'Log out', async () => {
+      // Detach this device first, otherwise the next account to sign in here
+      // keeps receiving the previous user's notifications.
+      await unregisterPush();
       await AsyncStorage.clear();
       router.replace('/');
-    };
-
-    if (Platform.OS === 'web') {
-      if (window.confirm('Are you sure you want to logout?')) {
-        performLogout();
-      }
-    } else {
-      Alert.alert(
-        'Logout',
-        'Are you sure you want to logout?',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Logout',
-            style: 'destructive',
-            onPress: performLogout,
-          },
-        ]
-      );
-    }
+    });
   };
 
-  const menuItems = [
-    { icon: 'person', title: 'My Profile', route: '/profile-detail/me', color: ['#14B8A6', '#0D9488'] },
-    { icon: 'home', title: 'Home', route: '/(tabs)/home', color: ['#6366F1', '#8B5CF6'] },
-    { icon: 'heart', title: 'Likes', route: '/(tabs)/likes', color: ['#EC4899', '#F43F5E'] },
-    { icon: 'eye', title: 'Viewed by', route: '/views', color: ['#8B5CF6', '#6366F1'] },
-    { icon: 'star', title: 'Shortlist', route: '/(tabs)/shortlist', color: ['#F59E0B', '#D97706'] },
-    { icon: 'search', title: 'Advanced Search', route: '/search', color: ['#10B981', '#059669'] },
-    { icon: 'share-social', title: 'Share Biodata', route: '/share', color: ['#3B82F6', '#2563EB'] },
-    { icon: 'book', title: 'Digital Magazine', route: '/magazine', color: ['#8B5CF6', '#A855F7'] },
-    { icon: 'diamond', title: 'Membership Plans', route: '/membership', color: ['#F59E0B', '#EAB308'] },
-    { icon: 'trophy', title: 'Success Story', route: '/success', color: ['#EC4899', '#DB2777'] },
-    { icon: 'people', title: '30+ Profiles', route: '/mature-profiles', color: ['#6366F1', '#4F46E5'] },
-    { icon: 'heart-half', title: 'Divorce Profiles', route: '/divorce-profiles', color: ['#8B5CF6', '#7C3AED'] },
-    { icon: 'accessibility', title: 'Disability Profiles', route: '/disability-profiles', color: ['#10B981', '#0EA472'] },
-  ];
+  const completion = Number(user?.profileCompletion ?? 0);
+  const openSection = (key: string) => router.push(`/edit-profile?section=${key}`);
+
+  if (!user) {
+    return (
+      <View style={styles.loading}>
+        <ActivityIndicator color={colors.accent} />
+      </View>
+    );
+  }
 
   return (
-    <View style={styles.container}>
-      <LinearGradient
-        colors={['#6366F1', '#8B5CF6']}
-        style={styles.header}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 0 }}
-      >
-        <View style={styles.profileHeader}>
-          <View style={styles.avatarContainer}>
-            <LinearGradient
-              colors={['#FFFFFF', '#F3F4F6']}
-              style={styles.avatarCircle}
+    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+      <View style={styles.header}>
+        {/* Same carousel as the public profile, so both screens behave alike
+            when there is more than one photo. */}
+        <PhotoCarousel
+          photos={photos}
+          height={HEADER_H}
+          name={profileName(user)}
+          code={profileCode(user)}
+        />
+
+
+        <View style={[styles.headerTop, { paddingTop: insets.top + spacing.sm }]}>
+          <View style={styles.headerBadges}>
+            <TouchableOpacity
+              style={styles.circleBtn}
+              onPress={pick}
+              disabled={uploading}
+              accessibilityLabel="Add photo"
             >
-              <Ionicons name="person" size={48} color="#8B5CF6" />
-            </LinearGradient>
+              {uploading ? (
+                <ActivityIndicator size="small" color={colors.white} />
+              ) : (
+                <Ionicons name="camera-outline" size={18} color={colors.white} />
+              )}
+            </TouchableOpacity>
           </View>
-          <View style={styles.profileInfo}>
-            <Text style={styles.profileName}>{user?.name || 'User'}</Text>
-            <Text style={styles.profileEmail}>{user?.email || ''}</Text>
-            <Text style={styles.profileId}>ID: GS{user?.id || '---'}</Text>
+        </View>
+
+      </View>
+
+      <View style={styles.body}>
+        <View style={styles.completionCard}>
+          <View style={styles.completionTop}>
+            <CompletionRing percent={completion} size={58} />
+            <View style={styles.completionText}>
+              <Text style={styles.completionTitle}>{ringLabel(completion)}</Text>
+              <Text style={styles.completionHint}>
+                Add a few more details to make your profile rich
+              </Text>
+            </View>
           </View>
-          <TouchableOpacity 
-            style={styles.editButtonWrapper}
+
+          {/* Goes to the full guided flow, not a single section - the point of
+              this card is finishing everything that is missing. */}
+          <TouchableOpacity
+            style={styles.primaryBtn}
+            activeOpacity={0.85}
             onPress={() => router.push('/profile-setup')}
-            activeOpacity={0.8}
           >
-            <LinearGradient
-              colors={['#EC4899', '#F43F5E']}
-              style={styles.editButton}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-            >
-              <Ionicons name="create" size={18} color="#FFFFFF" />
-              <Text style={styles.editButtonText}>Edit</Text>
-            </LinearGradient>
+            <Text style={styles.primaryBtnText}>Complete your profile</Text>
+            <Ionicons name="arrow-forward" size={16} color={colors.white} />
           </TouchableOpacity>
         </View>
-      </LinearGradient>
 
-      <ScrollView style={styles.content} contentContainerStyle={styles.scrollContent}>
-        <View style={styles.menuGrid}>
-          {menuItems.map((item, index) => (
-            <TouchableOpacity
-              key={index}
-              style={styles.menuItem}
-              onPress={() => {
-                if (item.route.startsWith('/(tabs)')) {
-                  router.push(item.route as any);
-                } else if (item.route === '/search' || item.route.startsWith('/profile-detail')) {
-                  router.push(item.route as any);
-                } else {
-                  Alert.alert('Coming Soon', `${item.title} feature will be available soon`);
-                }
-              }}
-              activeOpacity={0.8}
-            >
-              <LinearGradient
-                colors={item.color}
-                style={styles.menuItemGradient}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-              >
-                <View style={styles.iconContainer}>
-                  <Ionicons name={item.icon as any} size={28} color="#FFFFFF" />
-                </View>
-                <Text style={styles.menuItemText}>{item.title}</Text>
-                <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.8)" />
-              </LinearGradient>
-            </TouchableOpacity>
-          ))}
+        <View style={styles.stats}>
+          <Stat label="Sent" value={sentCount} onPress={() => router.push('/(tabs)/likes')} />
+          <View style={styles.statDivider} />
+          <Stat label="Received" value={receivedCount} onPress={() => router.push('/(tabs)/likes')} />
+          <View style={styles.statDivider} />
+          <Stat label="Connected" value={connectedCount} />
         </View>
 
-        <TouchableOpacity 
-          style={styles.logoutButton}
-          onPress={handleLogout}
-          activeOpacity={0.8}
-        >
-          <View style={styles.logoutContent}>
-            <View style={styles.logoutIconContainer}>
-              <Ionicons name="log-out" size={24} color="#EF4444" />
-            </View>
-            <Text style={styles.logoutButtonText}>Logout</Text>
-          </View>
+        <DetailCard
+          title="Basic Details"
+          subtitle="Brief outline of personal information"
+          onEdit={() => openSection('basic')}
+rows={rowsFor('basic', user, label)}
+        />
+
+        <DetailCard
+          title="About Me"
+          subtitle="Describe yourself in a few words"
+          body={user.aboutMyself}
+          onEdit={() => openSection('family')}
+          emptyHint="Profiles with a short intro get noticeably more responses"
+        />
+
+        <DetailCard
+          title="Education & Career"
+          subtitle="What you studied and what you do"
+          onEdit={() => openSection('education')}
+rows={rowsFor('education', user, label)}
+        />
+
+        <DetailCard
+          title="Religion & Astro"
+          subtitle="Details families often look for"
+          onEdit={() => openSection('religion')}
+rows={rowsFor('religion', user, label)}
+        />
+
+        <DetailCard
+          title="Family"
+          subtitle="Your family background"
+          onEdit={() => openSection('family')}
+rows={rowsFor('family', user, label)}
+        />
+
+        <DetailCard
+          title="Contact"
+          subtitle="Only shared with profiles you connect with"
+          onEdit={() => openSection('contact')}
+rows={rowsFor('contact', user, label)}
+        />
+
+        <TouchableOpacity style={styles.logout} onPress={handleLogout} activeOpacity={0.8}>
+          <Ionicons name="log-out-outline" size={18} color={colors.danger} />
+          <Text style={styles.logoutText}>Log out</Text>
         </TouchableOpacity>
 
         <View style={{ height: 32 }} />
-      </ScrollView>
-    </View>
+      </View>
+
+      <PhotoCropper {...cropperProps} />
+    </ScrollView>
+  );
+}
+
+function Stat({ label, value, onPress }: { label: string; value: number; onPress?: () => void }) {
+  return (
+    <TouchableOpacity style={styles.stat} activeOpacity={onPress ? 0.7 : 1} onPress={onPress}>
+      <Text style={styles.statValue}>{value}</Text>
+      <Text style={styles.statLabel}>{label}</Text>
+    </TouchableOpacity>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F3F4F6',
+  container: { flex: 1, backgroundColor: colors.surface },
+  loading: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.bg },
+
+  header: { height: HEADER_H, backgroundColor: colors.surface },
+  headerTop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    paddingHorizontal: spacing.lg,
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
   },
-  header: {
-    paddingTop: Platform.OS === 'ios' ? 60 : 40,
-    paddingBottom: 32,
-    paddingHorizontal: 24,
-  },
-  profileHeader: {
+  headerBadges: { flexDirection: 'row', gap: spacing.sm },
+  circleBtn: {
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: 4,
+    minWidth: 36,
+    height: 36,
+    paddingHorizontal: 10,
+    borderRadius: 18,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'center',
   },
-  avatarContainer: {
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 16,
-    elevation: 8,
+
+  body: { padding: spacing.md, gap: spacing.md, marginTop: -spacing.sm },
+
+  completionCard: {
+    backgroundColor: colors.bg,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.accentSoft,
+    padding: spacing.lg,
+    gap: spacing.lg,
   },
-  avatarCircle: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
+  completionTop: { flexDirection: 'row', alignItems: 'center', gap: spacing.lg },
+  completionText: { flex: 1, gap: 3 },
+  completionTitle: { fontSize: font.title, fontWeight: '600', color: colors.heading },
+  completionHint: { fontSize: font.body, color: colors.textMuted, lineHeight: 18 },
+
+  // Same treatment as the Save button on the edit sheets: flat crimson, small
+  // radius. One primary action style across the app rather than a gradient pill
+  // here and a flat button there.
+  primaryBtn: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 4,
-    borderColor: '#FFFFFF',
-  },
-  profileInfo: {
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  profileName: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
-    marginBottom: 4,
-  },
-  profileEmail: {
-    fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.9)',
-    marginBottom: 4,
-  },
-  profileId: {
-    fontSize: 12,
-    color: 'rgba(255, 255, 255, 0.7)',
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  editButtonWrapper: {
-    shadowColor: '#EC4899',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  editButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 24,
-    borderRadius: 20,
-  },
-  editButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  content: {
-    flex: 1,
-  },
-  scrollContent: {
-    padding: 16,
-  },
-  menuGrid: {
-    gap: 12,
-  },
-  menuItem: {
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  menuItemGradient: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
-    borderRadius: 16,
-  },
-  iconContainer: {
-    width: 48,
+    gap: spacing.sm,
     height: 48,
-    borderRadius: 24,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    borderRadius: radius.sm,
+    backgroundColor: colors.accentAlt,
+  },
+  primaryBtnText: { color: colors.white, fontSize: font.title, fontWeight: 'bold' },
+
+  stats: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 16,
+    backgroundColor: colors.bg,
+    borderRadius: 14,
+    paddingVertical: spacing.md,
   },
-  menuItemText: {
-    flex: 1,
-    fontSize: 16,
-    color: '#FFFFFF',
-    fontWeight: '600',
-  },
-  logoutButton: {
-    marginTop: 24,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
-    borderWidth: 2,
-    borderColor: '#FCA5A5',
-  },
-  logoutContent: {
+  stat: { flex: 1, alignItems: 'center', gap: 2 },
+  statValue: { fontSize: 18, fontWeight: 'bold', color: colors.text },
+  statLabel: { fontSize: font.small, color: colors.textMuted },
+  statDivider: { width: 1, height: 28, backgroundColor: colors.hairline },
+
+
+
+  logout: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 12,
+    gap: spacing.sm,
+    paddingVertical: 14,
+    borderRadius: 14,
+    backgroundColor: colors.bg,
+    marginTop: spacing.sm,
   },
-  logoutIconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#FEE2E2',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  logoutButtonText: {
-    fontSize: 16,
-    color: '#EF4444',
-    fontWeight: 'bold',
-  },
+  logoutText: { color: colors.danger, fontSize: font.title, fontWeight: '600' },
 });

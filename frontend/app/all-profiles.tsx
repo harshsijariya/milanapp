@@ -1,167 +1,250 @@
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Platform, Alert } from 'react-native';
-import { Image } from 'expo-image';
-import { useState, useEffect } from 'react';
-import { useRouter } from 'expo-router';
-import { profileAPI, likeAPI } from '../utils/api';
+import {
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
+  TouchableOpacity,
+  TextInput,
+  ActivityIndicator,
+  RefreshControl,
+  Alert,
+} from 'react-native';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { profileAPI, shortlistAPI } from '../utils/api';
+import { useGuardedRouter } from '../utils/useGuardedRouter';
+import { useConnections, connectionAction } from '../utils/useConnections';
+import ProfileRow from '../components/ProfileRow';
+import SwipeDeck from '../components/SwipeDeck';
+import {
+  colors,
+  font,
+  radius,
+  spacing,
+  profileId,
+  profileName,
+  type Profile,
+} from '../components/theme';
 
+const PAGE_SIZE = 20;
+type Mode = 'list' | 'swipe';
+
+/**
+ * All profiles.
+ *
+ * Defaults to the list, which is what "See all" on the home feed implies, with
+ * a toggle into the swipe deck for browsing one at a time. Both modes share the
+ * same paginated data, so switching never refetches.
+ */
 export default function AllProfilesScreen() {
-  const router = useRouter();
-  const [profiles, setProfiles] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
+  const router = useGuardedRouter();
+  const insets = useSafeAreaInsets();
+
+  const [mode, setMode] = useState<Mode>('list');
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [index, setIndex] = useState(0);
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(true);
-  const [likedProfileIds, setLikedProfileIds] = useState<Set<number>>(new Set());
+  const [query, setQuery] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const { stateOf, connect, withdraw, accept } = useConnections();
 
-  useEffect(() => {
-    loadProfiles();
+  const loadPage = useCallback(async (next: number, replace = false) => {
+    const res = await profileAPI.getProfiles(next, PAGE_SIZE);
+    const body = res?.data;
+    const raw = body?.content ?? body ?? [];
+    const list: Profile[] = Array.isArray(raw) ? raw : [];
+
+    setProfiles((prev) => (replace ? list : [...prev, ...list]));
+    setHasMore(list.length === PAGE_SIZE);
+    setPage(next);
+    return list;
   }, []);
 
-  const loadProfiles = async (pageNum = 0) => {
-    if (loading) return;
-    setLoading(true);
+  useEffect(() => {
+    loadPage(0, true)
+      .catch((e: any) => console.log('Failed to load profiles:', e?.message))
+      .finally(() => setLoading(false));
+  }, [loadPage]);
+
+  const fetchMore = useCallback(async () => {
+    if (loadingMore || !hasMore || loading) return;
+    setLoadingMore(true);
     try {
-      const response = await profileAPI.getProfiles(pageNum, 20);
-      const newProfiles = response.data.content || response.data || [];
-      const profilesData = Array.isArray(newProfiles) ? newProfiles : [];
-      
-      if (pageNum === 0) {
-        setProfiles(profilesData);
-      } else {
-        setProfiles(prev => [...prev, ...profilesData]);
-      }
-      
-      if (response.data.last !== undefined) {
-        setHasMore(!response.data.last);
-      } else {
-        setHasMore(profilesData.length === 20);
-      }
-      setPage(pageNum);
-    } catch (error) {
-      Alert.alert('Error', 'Failed to load profiles');
+      await loadPage(page + 1);
+    } catch (e: any) {
+      console.log('Failed to load more:', e?.message);
     } finally {
-      setLoading(false);
+      setLoadingMore(false);
     }
+  }, [loadingMore, hasMore, loading, page, loadPage]);
+
+  // In swipe mode there is no scroll position to trigger paging, so top the
+  // deck up before it runs dry.
+  useEffect(() => {
+    if (mode !== 'swipe') return;
+    if (profiles.length - index > 4) return;
+    fetchMore();
+  }, [mode, index, profiles.length, fetchMore]);
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    setIndex(0);
+    setHasMore(true);
+    loadPage(0, true)
+      .catch(() => {})
+      .finally(() => setRefreshing(false));
   };
 
-  const handleLoadMore = () => {
-    if (!loading && hasMore) {
-      loadProfiles(page + 1);
-    }
-  };
-
-  const handleLike = async (profileId: number | string) => {
+  const handleShortlist = async (id: string | number) => {
     try {
-      await likeAPI.likeProfile(profileId);
-      Alert.alert("Success", "Interest sent successfully! ❤️");
-      setLikedProfileIds((prev) => new Set(prev).add(Number(profileId)));
+      await shortlistAPI.add(id);
     } catch (error: any) {
-      const errorMsg = error.response?.data?.detail || typeof error.response?.data === 'string' ? error.response.data : "";
-      if (errorMsg && errorMsg.toLowerCase().includes('already')) {
-        setLikedProfileIds((prev) => new Set(prev).add(Number(profileId)));
-        Alert.alert("Connected", "You are already connected with this profile.");
-      } else {
-        Alert.alert(
-          "Error",
-          error.response?.data?.detail || "Failed to send interest",
-        );
-      }
+      Alert.alert('Error', error?.response?.data?.detail || 'Failed to shortlist');
     }
   };
 
-  const getProfileImage = (profile: any) => {
-    if (profile?.profileImage) return { uri: profile.profileImage };
-    if (profile?.profile_image) return { uri: profile.profile_image };
-    if (profile?.profileImages && profile.profileImages.length > 0) return { uri: profile.profileImages[0] };
-    return require('../assets/images/icon.png');
-  };
+  const openProfile = (id: string | number) => router.push(`/profile-detail/${id}`);
 
-  const renderProfile = ({ item }: any) => {
-    const isLiked = likedProfileIds.has(Number(item.id));
+  const data = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return profiles;
+    return profiles.filter((p) => profileName(p).toLowerCase().includes(q));
+  }, [profiles, query]);
 
-    return (
-      <TouchableOpacity
-        style={styles.listItem}
-        onPress={() => router.push(`/profile-detail/${item.id}`)}
-        activeOpacity={0.9}
-      >
-        <View style={styles.listContent}>
-          <LinearGradient
-            colors={['#D92E7F', '#E74C3C', '#F1C40F']}
-            style={styles.avatarRing}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-          >
-            <View style={styles.avatarContainer}>
-              <Image
-                source={getProfileImage(item)}
-                style={styles.avatar}
-                cachePolicy="memory-disk"
-              />
-            </View>
-          </LinearGradient>
-          
-          <View style={styles.infoContainer}>
-            <Text style={styles.nameText} numberOfLines={1}>
-              {item.name || `GS${item.id}`}
-            </Text>
-            <Text style={styles.detailText} numberOfLines={1}>
-              {item.profession || 'Not specified'} • {item.city || 'N/A'}
-            </Text>
-          </View>
-
-          <View style={styles.actionRow}>
-            <TouchableOpacity 
-              style={[styles.primaryButton, isLiked && { backgroundColor: '#D1FAE5' }]}
-              onPress={() => {
-                if (!isLiked) handleLike(item.id);
-              }}
-              activeOpacity={isLiked ? 1 : 0.8}
-            >
-              {isLiked ? (
-                <>
-                  <Ionicons name="checkmark" size={14} color="#059669" />
-                  <Text style={[styles.primaryButtonText, { color: '#059669' }]}>Connected</Text>
-                </>
-              ) : (
-                <>
-                  <Ionicons name="person-add-outline" size={14} color="#000" />
-                  <Text style={styles.primaryButtonText}>Connect Now</Text>
-                </>
-              )}
-            </TouchableOpacity>
-          </View>
-        </View>
-      </TouchableOpacity>
-    );
-  };
+  const deckDone = mode === 'swipe' && !loading && !profiles[index] && !hasMore;
 
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={24} color="#000" />
+    <View style={[styles.container, { paddingTop: insets.top }]}>
+      <View style={styles.topBar}>
+        <TouchableOpacity hitSlop={8} onPress={() => router.back()}>
+          <Ionicons name="arrow-back" size={24} color={colors.text} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>All Profiles</Text>
-        <View style={{ width: 40 }}>
-            <Text style={{fontSize: 14, color: '#737373', textAlign: 'right'}}>{profiles.length}</Text>
-        </View>
+        <Text style={styles.title}>All profiles</Text>
+        <TouchableOpacity
+          hitSlop={8}
+          onPress={() => setMode((m) => (m === 'list' ? 'swipe' : 'list'))}
+          accessibilityLabel={mode === 'list' ? 'Switch to card view' : 'Switch to list view'}
+        >
+          <Ionicons
+            name={mode === 'list' ? 'albums-outline' : 'list-outline'}
+            size={24}
+            color={colors.text}
+          />
+        </TouchableOpacity>
       </View>
 
-      <FlatList
-        data={profiles}
-        renderItem={renderProfile}
-        keyExtractor={(item) => item.id?.toString() || Math.random().toString()}
-        contentContainerStyle={styles.listContainer}
-        onEndReached={handleLoadMore}
-        onEndReachedThreshold={0.5}
-        ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <Text style={styles.emptyText}>{loading ? 'Loading...' : 'No profiles found'}</Text>
+      {loading ? (
+        <View style={styles.center}>
+          <ActivityIndicator color={colors.accent} />
+        </View>
+      ) : mode === 'swipe' ? (
+        deckDone ? (
+          <View style={styles.center}>
+            <View style={styles.empty}>
+              <Ionicons name="checkmark-done-outline" size={56} color={colors.textFaint} />
+              <Text style={styles.emptyTitle}>You&apos;ve seen everyone</Text>
+              <Text style={styles.emptyText}>Switch to list view to browse again</Text>
+              <TouchableOpacity style={styles.pillBtn} onPress={() => setIndex(0)}>
+                <Text style={styles.pillText}>Start over</Text>
+              </TouchableOpacity>
+            </View>
           </View>
-        }
-      />
+        ) : (
+          <SwipeDeck
+            profiles={profiles}
+            index={index}
+            onSwipe={(direction, profile) => {
+              const id = profileId(profile);
+              if (direction === 'right' && id != null) connect(id);
+              setIndex((i) => i + 1);
+            }}
+            onShortlist={handleShortlist}
+            onOpen={openProfile}
+          />
+        )
+      ) : (
+        <>
+          <View style={styles.searchWrap}>
+            <Ionicons name="search" size={17} color={colors.textMuted} />
+            <TextInput
+              style={styles.search}
+              placeholder="Search profiles"
+              placeholderTextColor={colors.textMuted}
+              value={query}
+              onChangeText={setQuery}
+              autoCapitalize="none"
+            />
+            {!!query && (
+              <TouchableOpacity hitSlop={8} onPress={() => setQuery('')} accessibilityLabel="Clear">
+                <Ionicons name="close-circle" size={17} color={colors.textMuted} />
+              </TouchableOpacity>
+            )}
+          </View>
+
+          <FlatList
+            data={data}
+            keyExtractor={(item, i) => `${profileId(item) ?? 'p'}-${i}`}
+            showsVerticalScrollIndicator={false}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={onRefresh}
+                tintColor={colors.accent}
+              />
+            }
+            renderItem={({ item }) => {
+              const id = profileId(item);
+              const state = stateOf(id);
+              const action = connectionAction(state);
+              return (
+                <ProfileRow
+                  profile={item}
+                  action={{
+                    ...action,
+                    onPress: () => {
+                      if (id == null) return;
+                      if (state === 'SENT') withdraw(id);
+                      else if (state === 'RECEIVED') accept(id);
+                      else if (state !== 'CONNECTED') connect(id);
+                    },
+                  }}
+                  onPress={() => id != null && openProfile(id)}
+                />
+              );
+            }}
+            // Searching filters the pages already loaded, so paging while a
+            // query is active would append results the filter then hides.
+            onEndReached={query ? undefined : fetchMore}
+            onEndReachedThreshold={0.6}
+            ListFooterComponent={
+              loadingMore ? (
+                <View style={styles.footer}>
+                  <ActivityIndicator color={colors.accent} />
+                </View>
+              ) : !hasMore && profiles.length > 0 && !query ? (
+                <Text style={styles.endText}>No more profiles</Text>
+              ) : null
+            }
+            ListEmptyComponent={
+              <View style={styles.empty}>
+                <Ionicons
+                  name={query ? 'search-outline' : 'people-outline'}
+                  size={48}
+                  color={colors.textFaint}
+                />
+                <Text style={styles.emptyTitle}>{query ? 'No matches' : 'No profiles yet'}</Text>
+                {!!query && (
+                  <Text style={styles.emptyText}>Nothing loaded matches “{query}”</Text>
+                )}
+              </View>
+            }
+          />
+        </>
+      )}
     </View>
   );
 }
@@ -169,102 +252,82 @@ export default function AllProfilesScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: colors.bg,
   },
-  header: {
+  topBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingTop: Platform.OS === 'ios' ? 60 : 40,
-    paddingBottom: 12,
-    paddingHorizontal: 16,
-    backgroundColor: '#fff',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
     borderBottomWidth: 1,
-    borderBottomColor: '#DBDBDB',
+    borderBottomColor: colors.hairline,
   },
-  backButton: {
-    padding: 8,
-    marginRight: 16,
-  },
-  headerTitle: {
-    flex: 1,
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#000',
-  },
-  listContainer: {
-    paddingVertical: 8,
-  },
-  listItem: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    backgroundColor: '#fff',
-  },
-  listContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  avatarRing: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  avatarContainer: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: '#fff',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  avatar: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-  },
-  infoContainer: {
-    flex: 1,
-    marginLeft: 12,
-    justifyContent: 'center',
-  },
-  nameText: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#262626',
-    marginBottom: 2,
-  },
-  detailText: {
-    fontSize: 13,
-    color: '#737373',
-  },
-  actionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginLeft: 8,
-  },
-  primaryButton: {
-    flexDirection: 'row',
-    backgroundColor: '#EFEFEF',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
-    minWidth: 110,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-  },
-  primaryButtonText: {
-    color: '#000',
-    fontSize: 13,
+  title: {
+    fontSize: font.heading,
     fontWeight: '600',
+    color: colors.text,
   },
-  emptyContainer: {
-    padding: 48,
+  center: {
+    flex: 1,
     alignItems: 'center',
+    justifyContent: 'center',
+  },
+  searchWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    margin: spacing.md,
+    paddingHorizontal: spacing.md,
+    height: 38,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  search: {
+    flex: 1,
+    fontSize: font.label,
+    color: colors.text,
+    padding: 0,
+  },
+  footer: {
+    paddingVertical: spacing.xl,
+  },
+  endText: {
+    textAlign: 'center',
+    color: colors.textMuted,
+    fontSize: font.body,
+    paddingVertical: spacing.xl,
+  },
+  empty: {
+    alignItems: 'center',
+    paddingTop: 64,
+    paddingHorizontal: spacing.xl,
+    gap: spacing.sm,
+  },
+  emptyTitle: {
+    fontSize: font.title,
+    fontWeight: '600',
+    color: colors.text,
+    marginTop: spacing.sm,
   },
   emptyText: {
-    fontSize: 15,
-    color: '#737373',
+    fontSize: font.body,
+    color: colors.textMuted,
+    textAlign: 'center',
+  },
+  pillBtn: {
+    marginTop: spacing.lg,
+    paddingHorizontal: 24,
+    paddingVertical: 10,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.link,
+  },
+  pillText: {
+    color: colors.link,
+    fontSize: font.label,
+    fontWeight: '600',
   },
 });

@@ -1,52 +1,72 @@
-import { View, Text, TextInput, StyleSheet, TouchableOpacity, KeyboardAvoidingView, Platform, Alert, ScrollView } from 'react-native';
-import { useRouter } from 'expo-router';
+import { View, Text, TextInput, StyleSheet, TouchableOpacity, Platform, Alert, ScrollView, KeyboardAvoidingView, InteractionManager } from 'react-native';
+
 import { useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { authAPI } from '../utils/api';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import { useGuardedRouter } from '../utils/useGuardedRouter';
+import { isGoogleConfigured, signInWithGoogle } from '../utils/googleSignIn';
 
 export default function RegisterScreen() {
-  const router = useRouter();
+  const router = useGuardedRouter();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [mobileNumber, setMobileNumber] = useState('');
-  const [dateOfBirth, setDateOfBirth] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
-  const calculateAge = (dob: string) => {
-    const parts = dob.split('/');
-    if (parts.length !== 3) return 0;
-    const day = parseInt(parts[0]);
-    const month = parseInt(parts[1]) - 1;
-    const year = parseInt(parts[2]);
-    const birthDate = new Date(year, month, day);
-    const today = new Date();
-    let age = today.getFullYear() - birthDate.getFullYear();
-    const monthDiff = today.getMonth() - birthDate.getMonth();
-    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
-      age--;
+  const onGooglePress = async () => {
+    if (!isGoogleConfigured) {
+      Alert.alert(
+        'Google Sign-In not configured',
+        'Set EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID in .env, then rebuild the app.'
+      );
+      return;
     }
-    return age;
+
+    setLoading(true);
+    try {
+      const idToken = await signInWithGoogle();
+      if (!idToken) return; // user cancelled
+
+      const res = await authAPI.googleAuth({ idToken });
+
+      await AsyncStorage.setItem('auth_token', res.data.token);
+      if (res.data.expiresIn) {
+        const expiryTime = new Date().getTime() + res.data.expiresIn;
+        await AsyncStorage.setItem('token_expiry', expiryTime.toString());
+      }
+
+      // Returning from Google's native account-picker Activity, Fabric is still
+      // re-mounting this surface - navigating in that frame corrupts the view
+      // tree ("addViewAt: The specified child already has a parent").
+      setLoading(false);
+      InteractionManager.runAfterInteractions(() => {
+        // New Google accounts land on profile setup to fill in the rest.
+        router.replace('/profile-setup');
+      });
+      return;
+    } catch (error: any) {
+      console.error('Google Auth Error:', error);
+      Alert.alert(
+        'Google Signup Failed',
+        error.response?.data?.message ||
+          error.response?.data?.detail ||
+          error.message ||
+          'Please try again'
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleRegister = async () => {
-    if (!name || !email || !password || !confirmPassword || !dateOfBirth || !mobileNumber) {
+    if (!name || !email || !password || !confirmPassword || !mobileNumber) {
       Alert.alert('Error', 'Please fill in all fields');
-      return;
-    }
-    const datePattern = /^\d{2}\/\d{2}\/\d{4}$/;
-    if (!datePattern.test(dateOfBirth)) {
-      Alert.alert('Error', 'Please enter date in DD/MM/YYYY format');
-      return;
-    }
-    const age = calculateAge(dateOfBirth);
-    if (age < 18) {
-      Alert.alert('Age Restriction', 'You must be at least 18 years old to register');
       return;
     }
     if (password !== confirmPassword) {
@@ -66,225 +86,204 @@ export default function RegisterScreen() {
     setLoading(true);
     try {
       const response = await authAPI.register({ name, email, password, mobileNo: mobileNumber });
-      await AsyncStorage.setItem('auth_token', response.data.token);
-      await AsyncStorage.setItem('user_data', JSON.stringify(response.data.user));
-      await AsyncStorage.setItem('temp_dob', dateOfBirth);
+
+      const token = response.data?.token || response.data || '';
+      const user = response.data?.user || { email, name };
+
+      if (typeof token === 'string' && token.length > 0) {
+        await AsyncStorage.setItem('auth_token', token);
+      }
+      await AsyncStorage.setItem('user_data', JSON.stringify(user));
       await AsyncStorage.setItem('temp_mobile', mobileNumber);
+
       router.replace('/profile-setup');
     } catch (error: any) {
-      Alert.alert('Registration Failed', error.response?.data?.detail || 'Please try again');
+      console.error('Caught error in handleRegister:', error);
+      if (error.response?.status === 409) {
+        Alert.alert('Account Exists', 'An account with this email or mobile number already exists. Please login instead.');
+      } else {
+        const errMsg = error.response?.data?.detail || error.message || 'Please try again';
+        Alert.alert('Registration Failed', errMsg);
+      }
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <LinearGradient
-      colors={['#6366F1', '#8B5CF6']}
-      style={styles.container}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
-    >
+    <View style={styles.container}>
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={styles.keyboardView}
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-          <TouchableOpacity
-            testID="register-back-btn"
-            style={styles.backButton}
-            onPress={() => router.back()}
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        <TouchableOpacity
+          testID="register-back-btn"
+          style={styles.backButton}
+          onPress={() => router.back()}
+        >
+          <Ionicons name="arrow-back" size={24} color="#262626" />
+        </TouchableOpacity>
+
+        <View style={styles.header}>
+          <LinearGradient
+            colors={['#EC4899', '#F43F5E']}
+            style={styles.logoSquare}
           >
-            <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
+            <Ionicons name="people" size={36} color="#FFFFFF" />
+          </LinearGradient>
+          <Text style={styles.title}>Create Account</Text>
+          <Text style={styles.subtitle}>Join us to find your perfect match</Text>
+        </View>
+
+        <View style={styles.formContainer}>
+          <View style={styles.inputContainer}>
+            <Ionicons name="person-outline" size={20} color="#8E8E8E" style={styles.inputIcon} />
+            <TextInput
+              testID="register-name-input"
+              style={styles.input}
+              placeholder="Full Name"
+              placeholderTextColor="#8E8E8E"
+              value={name}
+              onChangeText={setName}
+            />
+          </View>
+
+          <View style={styles.inputContainer}>
+            <Ionicons name="mail-outline" size={20} color="#8E8E8E" style={styles.inputIcon} />
+            <TextInput
+              testID="register-email-input"
+              style={styles.input}
+              placeholder="Email Address"
+              placeholderTextColor="#8E8E8E"
+              value={email}
+              onChangeText={setEmail}
+              keyboardType="email-address"
+              autoCapitalize="none"
+            />
+          </View>
+
+          <View style={styles.inputContainer}>
+            <Ionicons name="call-outline" size={20} color="#8E8E8E" style={styles.inputIcon} />
+            <TextInput
+              testID="register-mobile-input"
+              style={styles.input}
+              placeholder="Mobile Number"
+              placeholderTextColor="#8E8E8E"
+              value={mobileNumber}
+              onChangeText={setMobileNumber}
+              keyboardType="phone-pad"
+            />
+          </View>
+
+          <View style={styles.inputContainer}>
+            <Ionicons name="lock-closed-outline" size={20} color="#8E8E8E" style={styles.inputIcon} />
+            <TextInput
+              testID="register-password-input"
+              style={styles.input}
+              placeholder="Password"
+              placeholderTextColor="#8E8E8E"
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry={!showPassword}
+            />
+            <TouchableOpacity
+              style={styles.eyeIcon}
+              onPress={() => setShowPassword(!showPassword)}
+            >
+              <Ionicons
+                name={showPassword ? 'eye-off' : 'eye'}
+                size={20}
+                color="#8E8E8E"
+              />
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.inputContainer}>
+            <Ionicons name="shield-checkmark-outline" size={20} color="#8E8E8E" style={styles.inputIcon} />
+            <TextInput
+              testID="register-confirm-password-input"
+              style={styles.input}
+              placeholder="Confirm Password"
+              placeholderTextColor="#8E8E8E"
+              value={confirmPassword}
+              onChangeText={setConfirmPassword}
+              secureTextEntry={!showConfirmPassword}
+            />
+            <TouchableOpacity
+              style={styles.eyeIcon}
+              onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+            >
+              <Ionicons
+                name={showConfirmPassword ? 'eye-off' : 'eye'}
+                size={20}
+                color="#8E8E8E"
+              />
+            </TouchableOpacity>
+          </View>
+
+          {/* Primary button - same pink used for the primary action button on Complete Your Profile */}
+          <TouchableOpacity
+            testID="register-submit-btn"
+            onPress={handleRegister}
+            disabled={loading}
+            activeOpacity={0.85}
+          >
+            <LinearGradient
+              colors={['#EC4899', '#F43F5E']}
+              style={[styles.registerButton, loading && styles.buttonDisabled]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+            >
+              <Text style={styles.registerButtonText}>{loading ? 'Creating Account...' : 'Sign up'}</Text>
+            </LinearGradient>
           </TouchableOpacity>
 
-          <View style={styles.header}>
-            <View style={styles.iconContainer}>
-              <LinearGradient
-                colors={['#EC4899', '#F43F5E']}
-                style={styles.iconGradient}
-              >
-                <Ionicons name="person-add" size={32} color="#FFFFFF" />
-              </LinearGradient>
-            </View>
-            <Text style={styles.title}>Create Account</Text>
-            <Text style={styles.subtitle}>Join us to find your perfect match</Text>
+          <View style={styles.dividerContainer}>
+            <View style={styles.divider} />
+            <Text style={styles.dividerText}>OR</Text>
+            <View style={styles.divider} />
           </View>
 
-          <View style={styles.formContainer}>
-            <View style={styles.inputContainer}>
-              <View style={styles.inputIconContainer}>
-                <Ionicons name="person" size={20} color="#8B5CF6" />
-              </View>
-              <TextInput
-                testID="register-name-input"
-                style={styles.input}
-                placeholder="Full Name"
-                placeholderTextColor="#9CA3AF"
-                value={name}
-                onChangeText={setName}
-              />
-            </View>
+          <TouchableOpacity
+            testID="register-google-btn"
+            style={[styles.googleButton, loading && styles.buttonDisabled]}
+            activeOpacity={0.8}
+            disabled={loading}
+            onPress={onGooglePress}
+          >
+            <Ionicons name="logo-google" size={20} color="#EA4335" />
+            <Text style={styles.googleButtonText}>Continue with Google</Text>
+          </TouchableOpacity>
+        </View>
 
-            <View style={styles.inputContainer}>
-              <View style={styles.inputIconContainer}>
-                <Ionicons name="mail" size={20} color="#8B5CF6" />
-              </View>
-              <TextInput
-                testID="register-email-input"
-                style={styles.input}
-                placeholder="Email Address"
-                placeholderTextColor="#9CA3AF"
-                value={email}
-                onChangeText={setEmail}
-                keyboardType="email-address"
-                autoCapitalize="none"
-              />
-            </View>
+        <TouchableOpacity
+          testID="register-login-link"
+          style={styles.loginButton}
+          onPress={() => router.push('/login')}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.loginButtonText}>Already have an account? Log in</Text>
+        </TouchableOpacity>
 
-            <View style={styles.inputContainer}>
-              <View style={styles.inputIconContainer}>
-                <Ionicons name="call" size={20} color="#8B5CF6" />
-              </View>
-              <TextInput
-                testID="register-mobile-input"
-                style={styles.input}
-                placeholder="Mobile Number"
-                placeholderTextColor="#9CA3AF"
-                value={mobileNumber}
-                onChangeText={setMobileNumber}
-                keyboardType="phone-pad"
-              />
-            </View>
-
-            <View>
-              <View style={styles.inputContainer}>
-                <View style={styles.inputIconContainer}>
-                  <Ionicons name="calendar" size={20} color="#8B5CF6" />
-                </View>
-                <TextInput
-                  testID="register-dob-input"
-                  style={styles.input}
-                  placeholder="Date of Birth (DD/MM/YYYY)"
-                  placeholderTextColor="#9CA3AF"
-                  value={dateOfBirth}
-                  onChangeText={setDateOfBirth}
-                />
-              </View>
-              <Text style={styles.helperText}>You must be 18 years or older</Text>
-            </View>
-
-            <View style={styles.inputContainer}>
-              <View style={styles.inputIconContainer}>
-                <Ionicons name="lock-closed" size={20} color="#8B5CF6" />
-              </View>
-              <TextInput
-                testID="register-password-input"
-                style={styles.input}
-                placeholder="Password"
-                placeholderTextColor="#9CA3AF"
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry={!showPassword}
-              />
-              <TouchableOpacity
-                style={styles.eyeIcon}
-                onPress={() => setShowPassword(!showPassword)}
-              >
-                <Ionicons
-                  name={showPassword ? 'eye-off' : 'eye'}
-                  size={20}
-                  color="#9CA3AF"
-                />
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.inputContainer}>
-              <View style={styles.inputIconContainer}>
-                <Ionicons name="shield-checkmark" size={20} color="#8B5CF6" />
-              </View>
-              <TextInput
-                testID="register-confirm-password-input"
-                style={styles.input}
-                placeholder="Confirm Password"
-                placeholderTextColor="#9CA3AF"
-                value={confirmPassword}
-                onChangeText={setConfirmPassword}
-                secureTextEntry={!showConfirmPassword}
-              />
-              <TouchableOpacity
-                style={styles.eyeIcon}
-                onPress={() => setShowConfirmPassword(!showConfirmPassword)}
-              >
-                <Ionicons
-                  name={showConfirmPassword ? 'eye-off' : 'eye'}
-                  size={20}
-                  color="#9CA3AF"
-                />
-              </TouchableOpacity>
-            </View>
-
-            <TouchableOpacity
-              testID="register-submit-btn"
-              style={styles.shadowWrapper}
-              onPress={handleRegister}
-              disabled={loading}
-              activeOpacity={0.8}
-            >
-              <LinearGradient
-                colors={['#EC4899', '#F43F5E']}
-                style={[styles.registerButton, loading && styles.buttonDisabled]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-              >
-                {loading ? (
-                  <Text style={styles.registerButtonText}>Creating Account...</Text>
-                ) : (
-                  <>
-                    <Text style={styles.registerButtonText}>Sign Up</Text>
-                    <Ionicons name="arrow-forward" size={20} color="#FFFFFF" />
-                  </>
-                )}
-              </LinearGradient>
-            </TouchableOpacity>
-
-            <View style={styles.dividerContainer}>
-              <View style={styles.divider} />
-              <Text style={styles.dividerText}>OR</Text>
-              <View style={styles.divider} />
-            </View>
-
-            <TouchableOpacity
-              testID="register-google-btn"
-              style={styles.googleButton}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="logo-google" size={20} color="#EA4335" />
-              <Text style={styles.googleButtonText}>Continue with Google</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              testID="register-login-link"
-              onPress={() => router.push('/login')}
-              style={styles.loginContainer}
-            >
-              <Text style={styles.loginText}>
-                Already have an account? <Text style={styles.loginLink}>Login</Text>
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </ScrollView>
+        <View style={styles.footerBrand}>
+          <Ionicons name="heart" size={14} color="#DBDBDB" />
+          <Text style={styles.footerBrandText}>Gahoi Milan</Text>
+        </View>
+      </ScrollView>
       </KeyboardAvoidingView>
-    </LinearGradient>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  keyboardView: {
-    flex: 1,
+    backgroundColor: '#FFFFFF',
   },
   scrollContent: {
     flexGrow: 1,
@@ -296,85 +295,65 @@ const styles = StyleSheet.create({
   },
   header: {
     alignItems: 'center',
-    marginBottom: 32,
+    marginBottom: 28,
   },
-  iconContainer: {
-    marginBottom: 20,
-  },
-  iconGradient: {
+  logoSquare: {
     width: 80,
     height: 80,
-    borderRadius: 40,
+    borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
+    marginBottom: 18,
     shadowColor: '#EC4899',
     shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
+    shadowOpacity: 0.25,
     shadowRadius: 16,
-    elevation: 8,
+    elevation: 6,
   },
   title: {
-    fontSize: 32,
+    fontSize: 24,
     fontWeight: 'bold',
-    color: '#FFFFFF',
-    marginBottom: 8,
+    color: '#262626',
+    marginBottom: 6,
   },
   subtitle: {
-    fontSize: 16,
-    color: 'rgba(255, 255, 255, 0.8)',
+    fontSize: 14,
+    color: '#8E8E8E',
   },
   formContainer: {
-    gap: 16,
+    gap: 12,
   },
   inputContainer: {
-    backgroundColor: 'rgba(255, 255, 255, 0.95)',
-    borderRadius: 16,
+    backgroundColor: '#FAFAFA',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#DBDBDB',
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
+    paddingHorizontal: 14,
   },
-  inputIconContainer: {
-    marginRight: 12,
+  inputIcon: {
+    marginRight: 10,
   },
   input: {
     flex: 1,
-    paddingVertical: 16,
-    fontSize: 16,
-    color: '#1F2937',
+    paddingVertical: 14,
+    fontSize: 15,
+    color: '#262626',
   },
   eyeIcon: {
     padding: 8,
   },
-  helperText: {
-    color: 'rgba(255, 255, 255, 0.7)',
-    fontSize: 12,
-    marginTop: 6,
-    marginLeft: 4,
-  },
-  shadowWrapper: {
-    shadowColor: '#EC4899',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.4,
-    shadowRadius: 16,
-    elevation: 8,
-    marginTop: 4,
-  },
   registerButton: {
-    paddingVertical: 18,
-    borderRadius: 16,
-    flexDirection: 'row',
+    paddingVertical: 15,
+    borderRadius: 24,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 12,
+    marginTop: 6,
   },
   registerButtonText: {
     color: '#FFFFFF',
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: 'bold',
   },
   buttonDisabled: {
@@ -383,50 +362,59 @@ const styles = StyleSheet.create({
   dividerContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 16,
+    gap: 12,
     marginVertical: 4,
   },
   divider: {
     flex: 1,
     height: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    backgroundColor: '#EFEFEF',
   },
   dividerText: {
-    color: 'rgba(255, 255, 255, 0.8)',
-    fontSize: 14,
+    color: '#8E8E8E',
+    fontSize: 13,
     fontWeight: '600',
   },
   googleButton: {
-    backgroundColor: 'rgba(255, 255, 255, 0.95)',
-    paddingVertical: 18,
-    borderRadius: 16,
+    backgroundColor: '#FFFFFF',
+    paddingVertical: 14,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#DBDBDB',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
   },
   googleButtonText: {
-    color: '#1F2937',
-    fontSize: 16,
+    color: '#262626',
+    fontSize: 15,
     fontWeight: '600',
   },
-  loginContainer: {
-    marginTop: 12,
-    marginBottom: 32,
+  loginButton: {
+    marginTop: 24,
+    paddingVertical: 13,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: '#0095F6',
     alignItems: 'center',
   },
-  loginText: {
-    color: 'rgba(255, 255, 255, 0.8)',
-    fontSize: 14,
+  loginButtonText: {
+    color: '#0095F6',
+    fontSize: 15,
+    fontWeight: '600',
   },
-  loginLink: {
-    color: '#FFFFFF',
-    fontWeight: 'bold',
-    textDecorationLine: 'underline',
+  footerBrand: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginTop: 24,
+    marginBottom: 16,
+  },
+  footerBrandText: {
+    color: '#8E8E8E',
+    fontSize: 13,
+    fontWeight: '600',
   },
 });

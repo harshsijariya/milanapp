@@ -1,290 +1,274 @@
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Platform, Alert } from 'react-native';
-import { Image } from 'expo-image';
-import { useState, useEffect } from 'react';
-import { useRouter } from 'expo-router';
-import { likeAPI } from '../../utils/api';
+import {
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
+  TouchableOpacity,
+  TextInput,
+  Alert,
+  ActivityIndicator,
+  RefreshControl,
+} from 'react-native';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { likeAPI } from '../../utils/api';
+import { useGuardedRouter } from '../../utils/useGuardedRouter';
+import { confirmAction } from '../../utils/confirm';
+import ProfileRow, { type RowAction } from '../../components/ProfileRow';
+import { colors, font, radius, spacing, profileId, timeAgo, type Profile } from '../../components/theme';
 
+type Tab = 'received' | 'sent';
+type SortKey = 'recent' | 'name';
+
+type LikeItem = {
+  raw: any;
+  profile: Profile;
+  status: string;
+  at?: string;
+};
+
+/**
+ * Interest inbox, laid out like Instagram's followers list: a segmented count
+ * header, a sort row, then ringed-avatar rows with a trailing action.
+ */
 export default function LikesScreen() {
-  const router = useRouter();
-  const [activeTab, setActiveTab] = useState<"received" | "sent">("received");
-  const [receivedLikes, setReceivedLikes] = useState<any[]>([]);
-  const [sentLikes, setSentLikes] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
+  const router = useGuardedRouter();
+  const insets = useSafeAreaInsets();
 
-  useEffect(() => {
-    loadLikes();
-  }, [activeTab]);
+  const [tab, setTab] = useState<Tab>('received');
+  const [received, setReceived] = useState<LikeItem[]>([]);
+  const [sent, setSent] = useState<LikeItem[]>([]);
+  const [sort, setSort] = useState<SortKey>('recent');
+  const [query, setQuery] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const loadLikes = async () => {
-    setLoading(true);
+  // The two endpoints spell the nested profile and timestamp differently, so
+  // both are flattened to one shape here rather than at every render site.
+  const normalise = (item: any): LikeItem => {
+    const p = item.likedProfile || item.profile || item.user || {};
+    let status = String(item.status ?? '').toLowerCase();
+    if (status === 'rejected') status = 'declined';
+
+    return {
+      raw: item,
+      profile: {
+        ...p,
+        city: p.city || p.presentAddress || '',
+        state: p.state || '',
+      },
+      status,
+      at: item.likedAt || item.liked_at || item.createdAt,
+    };
+  };
+
+  const load = useCallback(async () => {
     try {
-      const mapLikeData = (item: any) => {
-        let status = item.status?.toLowerCase() || "";
-        if (status === "rejected") status = "declined";
+      const [recRes, sentRes] = await Promise.all([
+        likeAPI.getReceivedLikes(),
+        likeAPI.getSentLikes(),
+      ]);
 
-        const backendProfile = item.likedProfile || item.profile || {};
-        const profile = {
-          ...backendProfile,
-          city: backendProfile.city || backendProfile.presentAddress || "",
-          state: backendProfile.state || "",
-        };
+      const clean = (res: any) =>
+        (Array.isArray(res?.data) ? res.data : (res?.data?.content ?? []))
+          .map(normalise)
+          .filter((x: LikeItem) => profileId(x.profile) != null);
 
-        return {
-          ...item,
-          profile,
-          liked_at: item.likedAt || item.liked_at,
-          status: status,
-        };
-      };
-
-      if (activeTab === "received") {
-        const response = await likeAPI.getReceivedLikes();
-        const mapped = response.data.map(mapLikeData);
-        const valid = mapped.filter((item: any) => item.profile && item.profile.id);
-        setReceivedLikes(valid);
-      } else {
-        const response = await likeAPI.getSentLikes();
-        const mapped = response.data.map(mapLikeData);
-        const valid = mapped.filter((item: any) => item.profile && item.profile.id);
-        setSentLikes(valid);
-      }
-    } catch (error) {
-      Alert.alert("Error", "Failed to load likes");
+      setReceived(clean(recRes));
+      setSent(clean(sentRes));
+    } catch {
+      Alert.alert('Error', 'Failed to load interests');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    load();
   };
 
-  const handleAccept = async (likerId: number | string) => {
+  const act = async (fn: () => Promise<any>, failure: string) => {
     try {
-      await likeAPI.acceptLike(likerId);
-      Alert.alert("Success", "Interest accepted ✅");
-      loadLikes();
-    } catch (error) {
-      Alert.alert("Error", "Failed to accept");
+      await fn();
+      await load();
+    } catch (error: any) {
+      Alert.alert('Error', error?.response?.data?.detail || failure);
     }
   };
 
-  const handleDecline = async (likerId: number | string) => {
-    try {
-      await likeAPI.declineLike(likerId);
-      Alert.alert("Success", "Interest declined");
-      loadLikes();
-    } catch (error) {
-      Alert.alert("Error", "Failed to decline");
+  const data = useMemo(() => {
+    const list = tab === 'received' ? received : sent;
+    const q = query.trim().toLowerCase();
+    // Filters the rows already loaded - both tabs come down in one pass, so
+    // there is nothing to fetch.
+    const copy = q
+      ? list.filter((x) => String(x.profile?.name ?? '').toLowerCase().includes(q))
+      : [...list];
+    if (sort === 'name') {
+      copy.sort((a, b) =>
+        String(a.profile.name ?? '').localeCompare(String(b.profile.name ?? ''))
+      );
+    } else {
+      copy.sort((a, b) => new Date(b.at ?? 0).getTime() - new Date(a.at ?? 0).getTime());
     }
+    return copy;
+  }, [tab, received, sent, sort, query]);
+
+  const actionFor = (item: LikeItem): RowAction => {
+    const id = profileId(item.profile);
+    if (id == null) return { label: '—', variant: 'muted', disabled: true };
+
+    if (tab === 'received') {
+      if (item.status === 'accepted') return { label: 'Connected', variant: 'muted', disabled: true };
+      if (item.status === 'declined') return { label: 'Declined', variant: 'muted', disabled: true };
+      return {
+        label: 'Connect',
+        variant: 'filled',
+        onPress: () => act(() => likeAPI.acceptLike(id), 'Failed to accept'),
+      };
+    }
+
+    if (item.status === 'accepted') return { label: 'Connected', variant: 'muted', disabled: true };
+
+    // Pending request I sent. Withdrawing deletes the row, so the pair returns
+    // to neutral and a fresh request can be sent later - the button is the
+    // obvious place for that, not a hidden X.
+    return {
+      label: 'Withdraw',
+      variant: 'muted',
+      onPress: () =>
+        confirmAction('Withdraw request', 'Cancel your connection request?', 'Withdraw', () =>
+          act(() => likeAPI.unlikeProfile(id), 'Failed to withdraw')
+        ),
+    };
   };
 
-  const handleCancel = async (profileId: number | string) => {
-    Alert.alert(
-      'Cancel Interest',
-      'Are you sure you want to cancel this interest?',
-      [
-        { text: 'No', style: 'cancel' },
-        {
-          text: 'Cancel Interest',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await likeAPI.unlikeProfile(profileId);
-              Alert.alert("Success", "Interest cancelled");
-              loadLikes();
-            } catch (error) {
-              Alert.alert("Error", "Failed to cancel");
-            }
-          },
-        },
-      ]
-    );
+  const dismissFor = (item: LikeItem) => {
+    const id = profileId(item.profile);
+    if (id == null) return undefined;
+
+    if (tab === 'received') {
+      if (item.status === 'accepted' || item.status === 'declined') return undefined;
+      return () =>
+        confirmAction('Decline interest', 'Decline this request?', 'Decline', () =>
+          act(() => likeAPI.declineLike(id), 'Failed to decline')
+        );
+    }
+
+    return () =>
+      confirmAction('Withdraw request', 'Cancel your connection request?', 'Withdraw', () =>
+        act(() => likeAPI.unlikeProfile(id), 'Failed to cancel')
+      );
   };
-
-  const getProfileImage = (profile: any) => {
-    if (profile?.profileImage) return { uri: profile.profileImage };
-    if (profile?.profile_image) return { uri: profile.profile_image };
-    if (profile?.profileImages && profile.profileImages.length > 0) return { uri: profile.profileImages[0] };
-    return require('../../assets/images/icon.png');
-  };
-
-  const getTimeSince = (date: string) => {
-    if (!date) return "";
-    const now = new Date();
-    const then = new Date(date);
-    const diffInMs = now.getTime() - then.getTime();
-    const diffInDays = Math.floor(diffInMs / (1000 * 60 * 60 * 24));
-
-    if (diffInDays === 0) return "Today";
-    if (diffInDays === 1) return "1d ago";
-    if (diffInDays < 30) return `${diffInDays}d ago`;
-    if (diffInDays < 60) return "1mo ago";
-    return `${Math.floor(diffInDays / 30)}mo ago`;
-  };
-
-  const renderReceivedLike = ({ item }: any) => (
-    <TouchableOpacity
-      style={styles.listItem}
-      onPress={() => {
-        if (item.profile && item.profile.id) {
-          router.push(`/profile-detail/${item.profile.id}`);
-        } else {
-          Alert.alert("Error", "Profile ID is missing or invalid.");
-        }
-      }}
-      activeOpacity={0.9}
-    >
-      <View style={styles.listContent}>
-        <LinearGradient
-          colors={['#D92E7F', '#E74C3C', '#F1C40F']}
-          style={styles.avatarRing}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-        >
-          <View style={styles.avatarContainer}>
-            <Image
-              source={getProfileImage(item.profile)}
-              style={styles.avatar}
-              cachePolicy="memory-disk"
-            />
-          </View>
-        </LinearGradient>
-        
-        <View style={styles.infoContainer}>
-          <Text style={styles.nameText} numberOfLines={1}>
-            {item.profile.name || `GS${item.profile.id}`}
-          </Text>
-          <Text style={styles.detailText} numberOfLines={1}>
-            {item.profile.profession || "Not specified"} • {getTimeSince(item.liked_at)}
-          </Text>
-        </View>
-
-        <View style={styles.actionRow}>
-          {item.status === 'pending' && (
-            <>
-              <TouchableOpacity 
-                style={styles.primaryButton}
-                onPress={() => handleAccept(item.profile.id)}
-              >
-                <Text style={styles.primaryButtonText}>Accept</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={styles.iconButton}
-                onPress={() => handleDecline(item.profile.id)}
-              >
-                <Ionicons name="close-outline" size={24} color="#EF4444" />
-              </TouchableOpacity>
-            </>
-          )}
-          {item.status === 'accepted' && (
-            <Text style={styles.statusTextAccepted}>Accepted</Text>
-          )}
-          {item.status === 'declined' && (
-            <Text style={styles.statusTextDeclined}>Declined</Text>
-          )}
-        </View>
-      </View>
-    </TouchableOpacity>
-  );
-
-  const renderSentLike = ({ item }: any) => (
-    <TouchableOpacity
-      style={styles.listItem}
-      onPress={() => {
-        if (item.profile && item.profile.id) {
-          router.push(`/profile-detail/${item.profile.id}`);
-        } else {
-          Alert.alert("Error", "Profile ID is missing or invalid.");
-        }
-      }}
-      activeOpacity={0.9}
-    >
-      <View style={styles.listContent}>
-        <LinearGradient
-          colors={['#D92E7F', '#E74C3C', '#F1C40F']}
-          style={styles.avatarRing}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-        >
-          <View style={styles.avatarContainer}>
-            <Image
-              source={getProfileImage(item.profile)}
-              style={styles.avatar}
-              cachePolicy="memory-disk"
-            />
-          </View>
-        </LinearGradient>
-        
-        <View style={styles.infoContainer}>
-          <Text style={styles.nameText} numberOfLines={1}>
-            {item.profile.name || `GS${item.profile.id}`}
-          </Text>
-          <Text style={styles.detailText} numberOfLines={1}>
-            {item.profile.profession || "Not specified"} • {getTimeSince(item.liked_at)}
-          </Text>
-        </View>
-
-        <View style={styles.actionRow}>
-          {item.status === 'pending' && (
-            <>
-              <Text style={styles.statusTextPending}>Pending</Text>
-              <TouchableOpacity 
-                style={styles.iconButton}
-                onPress={() => handleCancel(item.profile.id)}
-              >
-                <Ionicons name="trash-outline" size={20} color="#EF4444" />
-              </TouchableOpacity>
-            </>
-          )}
-          {item.status === 'accepted' && (
-            <Text style={styles.statusTextAccepted}>Accepted</Text>
-          )}
-          {item.status === 'declined' && (
-            <Text style={styles.statusTextDeclined}>Declined</Text>
-          )}
-        </View>
-      </View>
-    </TouchableOpacity>
-  );
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { paddingTop: insets.top }]}>
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={24} color="#000" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Likes & Interests</Text>
+        <Text style={styles.headerTitle}>Interests</Text>
       </View>
 
-      <View style={styles.tabContainer}>
-        <TouchableOpacity style={[styles.tab, activeTab === 'received' && styles.activeTab]} onPress={() => setActiveTab('received')}>
-          <Text style={[styles.tabText, activeTab === 'received' && styles.activeTabText]}>Received ({receivedLikes.length})</Text>
+      <View style={styles.tabs}>
+        <TouchableOpacity
+          style={[styles.tab, tab === 'received' && styles.tabActive]}
+          onPress={() => setTab('received')}
+          activeOpacity={0.8}
+        >
+          <Text style={[styles.tabText, tab === 'received' && styles.tabTextActive]}>
+            {received.length} received
+          </Text>
         </TouchableOpacity>
-        <TouchableOpacity style={[styles.tab, activeTab === 'sent' && styles.activeTab]} onPress={() => setActiveTab('sent')}>
-          <Text style={[styles.tabText, activeTab === 'sent' && styles.activeTabText]}>Sent ({sentLikes.length})</Text>
+        <TouchableOpacity
+          style={[styles.tab, tab === 'sent' && styles.tabActive]}
+          onPress={() => setTab('sent')}
+          activeOpacity={0.8}
+        >
+          <Text style={[styles.tabText, tab === 'sent' && styles.tabTextActive]}>
+            {sent.length} sent
+          </Text>
         </TouchableOpacity>
       </View>
 
-      <FlatList
-        data={activeTab === "received" ? receivedLikes : sentLikes}
-        renderItem={activeTab === "received" ? renderReceivedLike : renderSentLike}
-        keyExtractor={(item, index) => `${item.profile?.id}-${index}` || index.toString()}
-        contentContainerStyle={styles.listContainer}
-        ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <Text style={styles.emptyText}>
-              {activeTab === "received"
-                ? "No received likes yet"
-                : "You haven't liked anyone yet"}
-            </Text>
-            <TouchableOpacity
-              style={[styles.primaryButton, {marginTop: 20}]}
-              onPress={() => router.push('/(tabs)/home')}
-            >
-              <Text style={styles.primaryButtonText}>Browse Profiles</Text>
-            </TouchableOpacity>
-          </View>
-        }
-      />
+      <View style={styles.searchWrap}>
+        <Ionicons name="search" size={17} color={colors.textMuted} />
+        <TextInput
+          style={styles.search}
+          placeholder="Search by name"
+          placeholderTextColor={colors.textMuted}
+          value={query}
+          onChangeText={setQuery}
+          autoCapitalize="none"
+        />
+        {!!query && (
+          <TouchableOpacity hitSlop={8} onPress={() => setQuery('')} accessibilityLabel="Clear search">
+            <Ionicons name="close-circle" size={17} color={colors.textMuted} />
+          </TouchableOpacity>
+        )}
+      </View>
+
+      <View style={styles.sortRow}>
+        <Text style={styles.sortLabel}>
+          Sort by <Text style={styles.sortValue}>{sort === 'recent' ? 'Recent' : 'Name'}</Text>
+        </Text>
+        <TouchableOpacity
+          hitSlop={8}
+          onPress={() => setSort((s) => (s === 'recent' ? 'name' : 'recent'))}
+          accessibilityLabel="Change sort order"
+        >
+          <Ionicons name="swap-vertical" size={20} color={colors.text} />
+        </TouchableOpacity>
+      </View>
+
+      {loading ? (
+        <View style={styles.center}>
+          <ActivityIndicator color={colors.accent} />
+        </View>
+      ) : (
+        <FlatList
+          data={data}
+          keyExtractor={(item, i) => `${profileId(item.profile) ?? 'l'}-${i}`}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} />
+          }
+          renderItem={({ item }) => (
+            <ProfileRow
+              profile={item.profile}
+              meta={item.at ? timeAgo(item.at) : undefined}
+              action={actionFor(item)}
+              onDismiss={dismissFor(item)}
+              dismissLabel={tab === 'received' ? 'Decline' : 'Withdraw'}
+              onPress={() => {
+                const id = profileId(item.profile);
+                if (id != null) router.push(`/profile-detail/${id}`);
+              }}
+            />
+          )}
+          ListEmptyComponent={
+            <View style={styles.empty}>
+              <Ionicons name="heart-outline" size={48} color={colors.textFaint} />
+              <Text style={styles.emptyTitle}>
+                {query
+                  ? 'No matches'
+                  : tab === 'received'
+                    ? 'No interests yet'
+                    : 'No requests sent'}
+              </Text>
+              <Text style={styles.emptyText}>
+                {tab === 'received'
+                  ? 'When someone connects with you, they’ll appear here'
+                  : 'Profiles you connect with will appear here'}
+              </Text>
+            </View>
+          }
+        />
+      )}
     </View>
   );
 }
@@ -292,141 +276,88 @@ export default function LikesScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: colors.bg,
   },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingTop: Platform.OS === 'ios' ? 60 : 40,
-    paddingBottom: 12,
-    paddingHorizontal: 16,
-    backgroundColor: '#fff',
-  },
-  backButton: {
-    padding: 8,
-    marginRight: 16,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
   },
   headerTitle: {
-    flex: 1,
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#000',
+    fontSize: font.heading,
+    fontWeight: '600',
+    color: colors.text,
   },
-  tabContainer: {
+  tabs: {
     flexDirection: 'row',
     borderBottomWidth: 1,
-    borderBottomColor: '#DBDBDB',
-    backgroundColor: '#fff',
+    borderBottomColor: colors.hairline,
   },
   tab: {
     flex: 1,
-    paddingVertical: 14,
     alignItems: 'center',
-  },
-  activeTab: {
+    paddingVertical: spacing.md,
     borderBottomWidth: 2,
-    borderBottomColor: '#000',
+    borderBottomColor: 'transparent',
+  },
+  tabActive: {
+    borderBottomColor: colors.text,
   },
   tabText: {
-    fontSize: 14,
+    fontSize: font.label,
+    color: colors.textMuted,
+  },
+  tabTextActive: {
+    color: colors.text,
     fontWeight: '600',
-    color: '#737373',
   },
-  activeTabText: {
-    color: '#000',
-  },
-  listContainer: {
-    paddingVertical: 8,
-  },
-  listItem: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    backgroundColor: '#fff',
-  },
-  listContent: {
+  searchWrap: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: spacing.sm,
+    marginHorizontal: spacing.md,
+    marginTop: spacing.md,
+    paddingHorizontal: spacing.md,
+    height: 38,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
-  avatarRing: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    justifyContent: 'center',
+  search: { flex: 1, fontSize: font.label, color: colors.text, padding: 0 },
+  sortRow: {
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
   },
-  avatarContainer: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: '#fff',
-    justifyContent: 'center',
-    alignItems: 'center',
+  sortLabel: {
+    fontSize: font.label,
+    color: colors.text,
   },
-  avatar: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+  sortValue: {
+    fontWeight: '600',
   },
-  infoContainer: {
+  center: {
     flex: 1,
-    marginLeft: 12,
+    alignItems: 'center',
     justifyContent: 'center',
   },
-  nameText: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#262626',
-    marginBottom: 2,
-  },
-  detailText: {
-    fontSize: 13,
-    color: '#737373',
-  },
-  actionRow: {
-    flexDirection: 'row',
+  empty: {
     alignItems: 'center',
-    marginLeft: 8,
-    gap: 4,
+    paddingTop: 72,
+    paddingHorizontal: spacing.xl,
+    gap: spacing.sm,
   },
-  primaryButton: {
-    backgroundColor: '#EFEFEF',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  primaryButtonText: {
-    color: '#000',
-    fontSize: 14,
+  emptyTitle: {
+    fontSize: font.title,
     fontWeight: '600',
-  },
-  iconButton: {
-    padding: 8,
-  },
-  statusTextAccepted: {
-    color: '#059669',
-    fontSize: 14,
-    fontWeight: '600',
-    paddingHorizontal: 8,
-  },
-  statusTextDeclined: {
-    color: '#DC2626',
-    fontSize: 14,
-    fontWeight: '600',
-    paddingHorizontal: 8,
-  },
-  statusTextPending: {
-    color: '#737373',
-    fontSize: 14,
-    fontWeight: '600',
-    paddingHorizontal: 8,
-  },
-  emptyContainer: {
-    padding: 48,
-    alignItems: "center",
+    color: colors.text,
+    marginTop: spacing.sm,
   },
   emptyText: {
-    fontSize: 15,
-    color: '#737373',
+    fontSize: font.body,
+    color: colors.textMuted,
+    textAlign: 'center',
   },
 });

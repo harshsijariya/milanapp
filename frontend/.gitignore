@@ -20,6 +20,19 @@ expo-env.d.ts
 
 # Metro
 .metro-health-check*
+.metro-cache/
+
+# Native build output (generated; ~83 MB, and churns the file watcher)
+android/build/
+android/app/build/
+android/.gradle/
+ios/Pods/
+ios/build/
+
+# Editor swap files - these are what an interrupted vim session leaves behind
+*.swp
+*.swo
+.*.swp
 
 # debug
 npm-debug.*
@@ -37,3 +50,7 @@ yarn-error.*
 *.tsbuildinfo
 
 app-example
+
+# Firebase Android config. Not secret in the way a service-account key is, but
+# it identifies your project - keep it out of a public repo.
+google-services.json

@@ -1,141 +1,176 @@
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Platform, Alert } from 'react-native';
-import { Image } from 'expo-image';
-import { useState, useEffect } from 'react';
-import { useRouter } from 'expo-router';
-import { shortlistAPI } from '../../utils/api';
+import {
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
+  TouchableOpacity,
+  TextInput,
+  Alert,
+  ActivityIndicator,
+  RefreshControl,
+} from 'react-native';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { shortlistAPI } from '../../utils/api';
+import { useGuardedRouter } from '../../utils/useGuardedRouter';
+import { useConnections, connectionAction } from '../../utils/useConnections';
+import { confirmAction } from '../../utils/confirm';
+import ProfileRow from '../../components/ProfileRow';
+import {
+  colors,
+  font,
+  radius,
+  spacing,
+  profileId,
+  profileName,
+  unwrapProfile,
+  type Profile,
+} from '../../components/theme';
 
+/**
+ * Saved profiles, laid out like Instagram's followers list. Each row keeps the
+ * primary action ("Connect") so the shortlist is actionable rather than just an
+ * archive, with the X removing the entry.
+ */
 export default function ShortlistScreen() {
-  const router = useRouter();
-  const [shortlist, setShortlist] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
+  const router = useGuardedRouter();
+  const insets = useSafeAreaInsets();
 
-  useEffect(() => {
-    loadShortlist();
-  }, []);
+  const [items, setItems] = useState<Profile[]>([]);
+  const { stateOf, connect, withdraw, accept } = useConnections();
+  const [query, setQuery] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const loadShortlist = async () => {
-    setLoading(true);
+  const load = useCallback(async () => {
     try {
-      const response = await shortlistAPI.getAll();
-      const profilesData = response.data.content || response.data || [];
-      setShortlist(Array.isArray(profilesData) ? profilesData : []);
-    } catch (error) {
+      const res = await shortlistAPI.getAll();
+      const list = res.data?.content ?? res.data ?? [];
+      setItems((Array.isArray(list) ? list : []).map(unwrapProfile));
+    } catch {
       Alert.alert('Error', 'Failed to load shortlist');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    load();
   };
 
-  const handleRemove = async (profileId: number | string) => {
-    Alert.alert(
-      'Remove from Shortlist',
-      'Are you sure you want to remove this profile?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Remove',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await shortlistAPI.remove(profileId);
-              Alert.alert('Success', 'Removed from shortlist');
-              loadShortlist();
-            } catch (error) {
-              Alert.alert('Error', 'Failed to remove');
-            }
-          },
-        },
-      ]
-    );
+  const handleRemove = (id: string | number) => {
+    confirmAction('Remove from shortlist', 'Remove this profile?', 'Remove', async () => {
+      // Drop it locally first so the list does not sit there during the request.
+      const before = items;
+      setItems((prev) => prev.filter((p) => String(profileId(p)) !== String(id)));
+      try {
+        await shortlistAPI.remove(id);
+      } catch {
+        setItems(before);
+        Alert.alert('Error', 'Failed to remove');
+      }
+    });
   };
 
-  const getProfileImage = (profile: any) => {
-    if (profile?.profileImage) return { uri: profile.profileImage };
-    if (profile?.profile_image) return { uri: profile.profile_image };
-    if (profile?.profileImages && profile.profileImages.length > 0) return { uri: profile.profileImages[0] };
-    return require('../../assets/images/icon.png');
-  };
-
-  const renderProfile = ({ item }: any) => (
-    <TouchableOpacity
-      style={styles.listItem}
-      onPress={() => router.push(`/profile-detail/${item.id}`)}
-      activeOpacity={0.9}
-    >
-      <View style={styles.listContent}>
-        <LinearGradient
-          colors={['#D92E7F', '#E74C3C', '#F1C40F']}
-          style={styles.avatarRing}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-        >
-          <View style={styles.avatarContainer}>
-            <Image
-              source={getProfileImage(item)}
-              style={styles.avatar}
-              cachePolicy="memory-disk"
-            />
-          </View>
-        </LinearGradient>
-        
-        <View style={styles.infoContainer}>
-          <Text style={styles.nameText} numberOfLines={1}>
-            {item.name || `GS${item.id}`}
-          </Text>
-          <Text style={styles.detailText} numberOfLines={1}>
-            {item.profession || 'Not specified'} • {item.city || 'N/A'}
-          </Text>
-        </View>
-
-        <View style={styles.actionRow}>
-          <TouchableOpacity 
-            style={styles.primaryButton}
-            onPress={() => router.push(`/profile-detail/${item.id}`)}
-          >
-            <Text style={styles.primaryButtonText}>View</Text>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={styles.iconButton}
-            onPress={() => handleRemove(item.id)}
-          >
-            <Ionicons name="trash-outline" size={20} color="#EF4444" />
-          </TouchableOpacity>
-        </View>
-      </View>
-    </TouchableOpacity>
-  );
+  const data = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return items;
+    return items.filter((p) => profileName(p).toLowerCase().includes(q));
+  }, [items, query]);
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { paddingTop: insets.top }]}>
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={24} color="#000" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>My Shortlist</Text>
-        <View style={{ width: 40 }}>
-            <Text style={{fontSize: 14, color: '#737373', textAlign: 'right'}}>{shortlist.length}</Text>
-        </View>
+        <Text style={styles.headerTitle}>Shortlist</Text>
+        <Text style={styles.headerCount}>
+          {items.length} {items.length === 1 ? 'profile' : 'profiles'}
+        </Text>
       </View>
 
-      <FlatList
-        data={shortlist}
-        renderItem={renderProfile}
-        keyExtractor={(item) => item.id?.toString() || Math.random().toString()}
-        contentContainerStyle={styles.listContainer}
-        ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <Text style={styles.emptyText}>No profiles shortlisted</Text>
-            <TouchableOpacity
-              style={[styles.primaryButton, {marginTop: 20}]}
-              onPress={() => router.push('/(tabs)/home')}
-            >
-              <Text style={styles.primaryButtonText}>Browse Profiles</Text>
-            </TouchableOpacity>
-          </View>
-        }
-      />
+      <View style={styles.searchWrap}>
+        <Ionicons name="search" size={17} color={colors.textMuted} />
+        <TextInput
+          style={styles.search}
+          placeholder="Search"
+          placeholderTextColor={colors.textMuted}
+          value={query}
+          onChangeText={setQuery}
+          autoCapitalize="none"
+        />
+        {!!query && (
+          <TouchableOpacity hitSlop={8} onPress={() => setQuery('')} accessibilityLabel="Clear search">
+            <Ionicons name="close-circle" size={17} color={colors.textMuted} />
+          </TouchableOpacity>
+        )}
+      </View>
+
+      {loading ? (
+        <View style={styles.center}>
+          <ActivityIndicator color={colors.accent} />
+        </View>
+      ) : (
+        <FlatList
+          data={data}
+          keyExtractor={(item, i) => `${profileId(item) ?? 's'}-${i}`}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} />
+          }
+          renderItem={({ item }) => {
+            const id = profileId(item);
+            const state = stateOf(id);
+            const action = connectionAction(state);
+            return (
+              <ProfileRow
+                profile={item}
+                action={{
+                  ...action,
+                  onPress: () => {
+                    if (id == null) return;
+                    if (state === 'SENT') withdraw(id);
+                    else if (state === 'RECEIVED') accept(id);
+                    else if (state !== 'CONNECTED') connect(id);
+                  },
+                }}
+                onDismiss={id != null ? () => handleRemove(id) : undefined}
+                onPress={() => id != null && router.push(`/profile-detail/${id}`)}
+              />
+            );
+          }}
+          ListEmptyComponent={
+            <View style={styles.empty}>
+              <Ionicons
+                name={query ? 'search-outline' : 'bookmark-outline'}
+                size={48}
+                color={colors.textFaint}
+              />
+              <Text style={styles.emptyTitle}>
+                {query ? 'No matches' : 'Nothing shortlisted yet'}
+              </Text>
+              <Text style={styles.emptyText}>
+                {query
+                  ? `No saved profile matches “${query}”`
+                  : 'Tap the bookmark on a profile to save it here'}
+              </Text>
+              {!query && (
+                <TouchableOpacity
+                  style={styles.browseBtn}
+                  onPress={() => router.push('/all-profiles')}
+                >
+                  <Text style={styles.browseText}>Browse profiles</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          }
+        />
+      )}
     </View>
   );
 }
@@ -143,103 +178,76 @@ export default function ShortlistScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: colors.bg,
   },
   header: {
     flexDirection: 'row',
-    alignItems: 'center',
-    paddingTop: Platform.OS === 'ios' ? 60 : 40,
-    paddingBottom: 12,
-    paddingHorizontal: 16,
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#DBDBDB',
-  },
-  backButton: {
-    padding: 8,
-    marginRight: 16,
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
   },
   headerTitle: {
-    flex: 1,
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#000',
-  },
-  listContainer: {
-    paddingVertical: 8,
-  },
-  listItem: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    backgroundColor: '#fff',
-  },
-  listContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  avatarRing: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  avatarContainer: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: '#fff',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  avatar: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-  },
-  infoContainer: {
-    flex: 1,
-    marginLeft: 12,
-    justifyContent: 'center',
-  },
-  nameText: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#262626',
-    marginBottom: 2,
-  },
-  detailText: {
-    fontSize: 13,
-    color: '#737373',
-  },
-  actionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginLeft: 8,
-  },
-  primaryButton: {
-    backgroundColor: '#EFEFEF',
-    paddingHorizontal: 20,
-    paddingVertical: 8,
-    borderRadius: 8,
-    minWidth: 90,
-    alignItems: 'center',
-  },
-  primaryButtonText: {
-    color: '#000',
-    fontSize: 14,
+    fontSize: font.heading,
     fontWeight: '600',
+    color: colors.text,
   },
-  iconButton: {
-    padding: 8,
-    marginLeft: 8,
+  headerCount: {
+    fontSize: font.body,
+    color: colors.textMuted,
   },
-  emptyContainer: {
-    padding: 48,
+  searchWrap: {
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: spacing.sm,
+    marginHorizontal: spacing.md,
+    marginBottom: spacing.md,
+    paddingHorizontal: spacing.md,
+    height: 38,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  search: {
+    flex: 1,
+    fontSize: font.label,
+    color: colors.text,
+    padding: 0,
+  },
+  center: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  empty: {
+    alignItems: 'center',
+    paddingTop: 72,
+    paddingHorizontal: spacing.xl,
+    gap: spacing.sm,
+  },
+  emptyTitle: {
+    fontSize: font.title,
+    fontWeight: '600',
+    color: colors.text,
+    marginTop: spacing.sm,
   },
   emptyText: {
-    fontSize: 15,
-    color: '#737373',
+    fontSize: font.body,
+    color: colors.textMuted,
+    textAlign: 'center',
+  },
+  browseBtn: {
+    marginTop: spacing.lg,
+    paddingHorizontal: 24,
+    paddingVertical: 10,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.link,
+  },
+  browseText: {
+    color: colors.link,
+    fontSize: font.label,
+    fontWeight: '600',
   },
 });
