@@ -53,7 +53,10 @@ resource "aws_secretsmanager_secret_version" "app" {
     API_BASE_URL            = "https://${var.api_domain}"
 
     # --- Push notifications ---
-    FIREBASE_SERVICE_ACCOUNT_PATH = "/etc/gahoi-milan/firebase-service-account.json"
+    # The whole service-account JSON lives in the secret, so the credential is
+    # never written to the instance's disk. Seeded empty here and filled in by
+    # put-secrets.sh, because a multi-line JSON key does not belong in tfvars.
+    FIREBASE_SERVICE_ACCOUNT_JSON = ""
     FIREBASE_ENABLED              = tostring(var.firebase_enabled)
 
     CORS_ALLOWED_ORIGINS = var.cors_allowed_origins

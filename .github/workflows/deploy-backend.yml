@@ -81,10 +81,13 @@ jobs:
           # The heredoc delimiter is quoted, so the runner's shell expands
           # nothing. GitHub still substitutes its own expressions before the
           # script is written, and $(...) stays literal for the instance.
+          #
+          # These commands run under /bin/sh on the instance - dash, not bash.
+          # No pipefail, no [[ ]], no arrays. Everything below is POSIX.
           cat > /tmp/ssm-params.json <<'SSMEOF'
           {
             "commands": [
-              "set -euo pipefail",
+              "set -eu",
               "test -f /etc/gahoi-milan/gahoi-milan.env || { echo MISSING /etc/gahoi-milan/gahoi-milan.env; exit 1; }",
               "command -v aws >/dev/null || { echo installing awscli; apt-get update -qq && apt-get install -y -qq awscli; }",
               "if [ -f /opt/gahoi-milan/app.jar ]; then cp /opt/gahoi-milan/app.jar /opt/gahoi-milan/app.previous.jar; fi",

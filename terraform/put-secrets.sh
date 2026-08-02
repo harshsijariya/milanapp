@@ -61,16 +61,49 @@ bold "Values Terraform cannot know - press Enter to keep the current value"
 read -r -p "  Gmail address            : " MAIL_USER
 read -r -s -p "  Gmail App Password       : " MAIL_PASS; echo
 read -r -p "  Google OAuth client IDs   : " GOOGLE_IDS
-read -r -p "  Enable Firebase push (y/N): " FIREBASE
 
+# The whole service-account JSON goes into the secret rather than onto the
+# server's disk, so rotating it is one edit here instead of copying a file to
+# every instance.
+read -r -p "  Firebase service-account JSON path (blank to skip): " FIREBASE_JSON_PATH
+
+FIREBASE_JSON=""
 FIREBASE_ENABLED=""
-[[ "$FIREBASE" =~ ^[Yy]$ ]] && FIREBASE_ENABLED="true"
+if [[ -n "$FIREBASE_JSON_PATH" ]]; then
+  FIREBASE_JSON_PATH="${FIREBASE_JSON_PATH/#\~/$HOME}"
+
+  if [[ ! -f "$FIREBASE_JSON_PATH" ]]; then
+    printf "  \033[31mfail\033[0m no such file: %s\n" "$FIREBASE_JSON_PATH" >&2
+    exit 1
+  fi
+
+  # Reject anything that is not a service account before storing it - a wrong
+  # file here fails silently at startup and push just never works.
+  if ! python3 -c "
+import json, sys
+d = json.load(open(sys.argv[1]))
+missing = [k for k in ('type','project_id','private_key','client_email') if k not in d]
+if missing:
+    sys.exit('missing keys: ' + ', '.join(missing))
+if d['type'] != 'service_account':
+    sys.exit('type is ' + d['type'] + ', expected service_account')
+print('  project ' + d['project_id'] + ', client ' + d['client_email'])
+" "$FIREBASE_JSON_PATH"; then
+    printf "  \033[31mfail\033[0m that does not look like a Firebase service-account key\n" >&2
+    exit 1
+  fi
+
+  FIREBASE_JSON=$(cat "$FIREBASE_JSON_PATH")
+  FIREBASE_ENABLED="true"
+  ok "Firebase credentials will be stored in the secret"
+fi
 
 # Merge in python rather than jq: python3 ships with macOS, jq does not.
 UPDATED=$(CURRENT="$CURRENT" \
   JWT="$JWT" ADMIN="$ADMIN" DB_PASS="$DB_PASS" \
   MAIL_USER="$MAIL_USER" MAIL_PASS="$MAIL_PASS" \
   GOOGLE_IDS="$GOOGLE_IDS" FIREBASE_ENABLED="$FIREBASE_ENABLED" \
+  FIREBASE_JSON="$FIREBASE_JSON" \
   python3 -c '
 import json, os
 secret = json.loads(os.environ["CURRENT"] or "{}")
@@ -85,6 +118,7 @@ for key, env in [
     ("MAIL_PASSWORD", "MAIL_PASS"),
     ("GOOGLE_OAUTH_CLIENT_IDS", "GOOGLE_IDS"),
     ("FIREBASE_ENABLED", "FIREBASE_ENABLED"),
+    ("FIREBASE_SERVICE_ACCOUNT_JSON", "FIREBASE_JSON"),
 ]:
     value = os.environ.get(env, "")
     if value:

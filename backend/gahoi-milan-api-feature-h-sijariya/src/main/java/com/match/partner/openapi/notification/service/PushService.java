@@ -14,8 +14,10 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
+import java.io.ByteArrayInputStream;
 import java.io.FileInputStream;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -48,6 +50,17 @@ public class PushService {
 
     private final DeviceTokenRepository deviceTokenRepository;
 
+    /**
+     * The service-account JSON itself, from Secrets Manager.
+     *
+     * Preferred over the file path: it means the credential never lands on the
+     * instance's disk, and rotating it is editing one secret rather than
+     * copying a file to every server.
+     */
+    @Value("${firebase.service-account-json:}")
+    private String serviceAccountJson;
+
+    /** Fallback for local development, where there is no Secrets Manager. */
     @Value("${firebase.service-account-path:}")
     private String serviceAccountPath;
 
@@ -62,8 +75,11 @@ public class PushService {
             log.info("Push disabled (firebase.enabled=false). Notifications will be stored but not delivered.");
             return;
         }
-        if (serviceAccountPath == null || serviceAccountPath.isBlank()) {
-            log.warn("firebase.service-account-path is not set - push delivery is off. "
+        boolean haveJson = serviceAccountJson != null && !serviceAccountJson.isBlank();
+        boolean havePath = serviceAccountPath != null && !serviceAccountPath.isBlank();
+
+        if (!haveJson && !havePath) {
+            log.warn("No Firebase credentials configured - push delivery is off. "
                     + "Notifications are still saved and visible in-app.");
             return;
         }
@@ -73,16 +89,24 @@ public class PushService {
                 ready = true;
                 return;
             }
-            try (InputStream credentials = new FileInputStream(serviceAccountPath)) {
+
+            // JSON from the secret wins. The file path is only for local runs.
+            try (InputStream credentials = haveJson
+                    ? new ByteArrayInputStream(serviceAccountJson.getBytes(StandardCharsets.UTF_8))
+                    : new FileInputStream(serviceAccountPath)) {
+
                 FirebaseOptions options = FirebaseOptions.builder()
                         .setCredentials(GoogleCredentials.fromStream(credentials))
                         .build();
                 FirebaseApp.initializeApp(options);
             }
+
             ready = true;
-            log.info("Firebase initialised - push delivery is active.");
+            log.info("Firebase initialised from {} - push delivery is active.",
+                    haveJson ? "Secrets Manager" : serviceAccountPath);
+
         } catch (Exception e) {
-            // A bad credentials file must not stop the application from booting;
+            // Bad credentials must not stop the application from booting;
             // everything except push still works.
             log.error("Firebase init failed, push delivery is off: {}", e.getMessage());
         }
