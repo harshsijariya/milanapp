@@ -39,10 +39,13 @@ dependencies {
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 	runtimeOnly 'com.mysql:mysql-connector-j'
-	implementation 'org.springframework.boot:spring-boot-starter-mail'
+	// spring-boot-starter-mail deliberately removed: nothing in the codebase
+	// sends email, and its presence registers a health indicator that opens an
+	// SMTP connection on every /actuator/health call. With no valid Gmail
+	// credentials that reported DOWN, which failed the deploy's health gate for
+	// an app that was working perfectly. Add it back alongside real sending
+	// code, not before.
 	implementation 'org.springframework.boot:spring-boot-starter-security'
-	// Serves /actuator/health, which the deployment scripts and any uptime
-	// monitor poll to decide whether the app came back up after a restart.
 	implementation 'io.jsonwebtoken:jjwt-api:0.11.5'
 	runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.11.5'
 	runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.11.5'

@@ -79,8 +79,6 @@ jobs:
           DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
           NOTIFICATIONS_ADMIN_SECRET: ${{ secrets.NOTIFICATIONS_ADMIN_SECRET }}
-          MAIL_USERNAME: ${{ secrets.MAIL_USERNAME }}
-          MAIL_PASSWORD: ${{ secrets.MAIL_PASSWORD }}
           AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
           GOOGLE_OAUTH_CLIENT_IDS: ${{ secrets.GOOGLE_OAUTH_CLIENT_IDS }}
           API_BASE_URL: ${{ secrets.API_BASE_URL }}
@@ -93,7 +91,7 @@ jobs:
           # would surface as "Could not resolve placeholder" twenty minutes
           # from now, which is a much worse afternoon.
           for required in DB_URL DB_USERNAME DB_PASSWORD JWT_SECRET \
-              NOTIFICATIONS_ADMIN_SECRET MAIL_USERNAME MAIL_PASSWORD \
+              NOTIFICATIONS_ADMIN_SECRET \
               AWS_S3_BUCKET GOOGLE_OAUTH_CLIENT_IDS API_BASE_URL; do
             if [ -z "${!required}" ]; then
               echo "::error::GitHub secret '$required' is not set (Settings -> Secrets and variables -> Actions)"
@@ -120,8 +118,6 @@ jobs:
           DB_PASSWORD=${DB_PASSWORD}
           JWT_SECRET=${JWT_SECRET}
           NOTIFICATIONS_ADMIN_SECRET=${NOTIFICATIONS_ADMIN_SECRET}
-          MAIL_USERNAME=${MAIL_USERNAME}
-          MAIL_PASSWORD=${MAIL_PASSWORD}
           AWS_S3_BUCKET=${AWS_S3_BUCKET}
           GOOGLE_OAUTH_CLIENT_IDS=${GOOGLE_OAUTH_CLIENT_IDS}
           API_BASE_URL=${API_BASE_URL}
