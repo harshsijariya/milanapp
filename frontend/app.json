@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "frontend",
-    "slug": "frontend",
+    "name": "Gahoi Milan",
+    "slug": "gahoi-milan",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "frontend",
+    "scheme": "gahoimilan",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": false,
     "ios": {
@@ -18,10 +18,9 @@
         "backgroundColor": "#000"
       },
       "edgeToEdgeEnabled": true,
-      "permissions": [
-        "android.permission.RECORD_AUDIO"
-      ],
-      "package": "com.jeevanmilansathi.frontend"
+      "permissions": [],
+      "package": "com.jeevanmilansathi.frontend",
+      "versionCode": 1
     },
     "web": {
       "bundler": "metro",
@@ -51,7 +50,7 @@
         "expo-build-properties",
         {
           "android": {
-            "usesCleartextTraffic": true,
+            "usesCleartextTraffic": false,
             "newArchEnabled": false
           }
         }

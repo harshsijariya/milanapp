@@ -1,0 +1,147 @@
+name: Deploy backend
+
+# Only when the backend changes. Without the path filter every frontend commit
+# would rebuild and restart the API for nothing.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/deploy-backend.yml'
+  workflow_dispatch:
+
+env:
+  AWS_REGION: ap-south-1
+  BACKEND_DIR: backend/gahoi-milan-api-feature-h-sijariya
+
+# Two deploys landing on one instance at once leave it in an undefined state.
+concurrency:
+  group: deploy-backend
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: gradle
+
+      - name: Build the jar
+        working-directory: ${{ env.BACKEND_DIR }}
+        run: |
+          chmod +x ./gradlew
+          ./gradlew clean bootJar --no-daemon
+
+      - name: Run tests
+        working-directory: ${{ env.BACKEND_DIR }}
+        run: ./gradlew test --no-daemon
+        # A failing test blocks the deploy - that is the point of running it
+        # here rather than on the server.
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Upload the jar to S3
+        id: upload
+        working-directory: ${{ env.BACKEND_DIR }}
+        run: |
+          set -euo pipefail
+
+          # Gradle also emits a "-plain" jar with no dependencies bundled. It
+          # starts and immediately dies with NoClassDefFoundError, so take the
+          # fat one explicitly rather than whatever ls returns first.
+          JAR=$(ls -t build/libs/*.jar | grep -v -- '-plain' | head -1)
+          echo "Built $JAR ($(du -h "$JAR" | cut -f1))"
+
+          KEY="releases/${GITHUB_SHA::8}-$(date +%Y%m%d%H%M%S).jar"
+          aws s3 cp "$JAR" "s3://${{ secrets.AWS_ARTIFACT_BUCKET }}/$KEY"
+          echo "key=$KEY" >> "$GITHUB_OUTPUT"
+
+      - name: Install and restart on the instance
+        id: run
+        run: |
+          set -euo pipefail
+
+          # Sent over SSM rather than SSH. GitHub's runners have no fixed IP,
+          # so opening port 22 to them would mean opening it to the internet.
+          # SSM reaches the instance through its outbound connection to AWS, so
+          # nothing extra is exposed.
+          #
+          # nginx is installed and enabled at first boot, so a deploy normally
+          # leaves it alone - a new jar does not need the proxy restarted. The
+          # checks at the end exist because the app health probe hits
+          # 127.0.0.1:8080 directly and would pass with nginx dead, reporting a
+          # green deploy on an API nobody outside can reach.
+          CMD=$(aws ssm send-command \
+            --instance-ids "${{ secrets.EC2_INSTANCE_ID }}" \
+            --document-name "AWS-RunShellScript" \
+            --comment "Deploy ${GITHUB_SHA::8}" \
+            --timeout-seconds 600 \
+            --parameters commands='[
+              "set -euo pipefail",
+              "test -f /etc/gahoi-milan/gahoi-milan.env || { echo MISSING /etc/gahoi-milan/gahoi-milan.env; exit 1; }",
+              "command -v aws >/dev/null || { echo installing awscli; apt-get update -qq && apt-get install -y -qq awscli; }",
+              "if [ -f /opt/gahoi-milan/app.jar ]; then cp /opt/gahoi-milan/app.jar /opt/gahoi-milan/app.previous.jar; fi",
+              "aws s3 cp s3://${{ secrets.AWS_ARTIFACT_BUCKET }}/${{ steps.upload.outputs.key }} /tmp/app-new.jar --region ${{ env.AWS_REGION }}",
+              "mv /tmp/app-new.jar /opt/gahoi-milan/app.jar",
+              "chown gahoi:gahoi /opt/gahoi-milan/app.jar",
+              "chmod 644 /opt/gahoi-milan/app.jar",
+              "systemctl restart gahoi-milan",
+              "echo waiting for health",
+              "for i in $(seq 1 45); do if curl -fsS --max-time 3 http://127.0.0.1:8080/actuator/health 2>/dev/null | grep -q UP; then echo APP HEALTHY; break; fi; if [ $i -eq 45 ]; then echo HEALTH CHECK FAILED; journalctl -u gahoi-milan -n 60 --no-pager; cp /opt/gahoi-milan/app.previous.jar /opt/gahoi-milan/app.jar 2>/dev/null && systemctl restart gahoi-milan && echo ROLLED BACK; exit 1; fi; sleep 2; done",
+              "nginx -t || { echo NGINX CONFIG BROKEN; exit 1; }",
+              "systemctl enable --now nginx",
+              "systemctl is-active --quiet nginx || { echo NGINX NOT RUNNING; systemctl status nginx --no-pager; exit 1; }",
+              "ss -lnt | grep -qE ':(80|443) ' || { echo NOTHING LISTENING ON 80/443; exit 1; }",
+              "echo NGINX OK"
+            ]' \
+            --query 'Command.CommandId' --output text)
+
+          echo "id=$CMD" >> "$GITHUB_OUTPUT"
+          echo "SSM command $CMD"
+
+      - name: Wait for it to finish
+        run: |
+          set -uo pipefail
+          CMD="${{ steps.run.outputs.id }}"
+          INSTANCE="${{ secrets.EC2_INSTANCE_ID }}"
+
+          # The jar download plus a cold JVM start takes 40-90s on a t3.small,
+          # so poll rather than sleeping a fixed amount.
+          for _ in $(seq 1 60); do
+            STATUS=$(aws ssm get-command-invocation \
+              --command-id "$CMD" --instance-id "$INSTANCE" \
+              --query 'Status' --output text 2>/dev/null || echo Pending)
+
+            case "$STATUS" in
+              Success)
+                echo "::notice::Deployed ${GITHUB_SHA::8}"
+                aws ssm get-command-invocation --command-id "$CMD" \
+                  --instance-id "$INSTANCE" --query 'StandardOutputContent' --output text
+                exit 0
+                ;;
+              Failed|Cancelled|TimedOut)
+                echo "::error::Deployment $STATUS"
+                aws ssm get-command-invocation --command-id "$CMD" \
+                  --instance-id "$INSTANCE" --query 'StandardOutputContent' --output text
+                aws ssm get-command-invocation --command-id "$CMD" \
+                  --instance-id "$INSTANCE" --query 'StandardErrorContent' --output text
+                exit 1
+                ;;
+            esac
+            sleep 5
+          done
+
+          echo "::error::Timed out waiting on SSM command $CMD"
+          exit 1
