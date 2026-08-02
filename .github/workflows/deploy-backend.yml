@@ -70,17 +70,77 @@ jobs:
 
       - name: Install and restart on the instance
         id: run
+        # Every configuration value the app needs, straight from GitHub
+        # secrets. The deploy writes them to /etc/gahoi-milan/gahoi-milan.env
+        # on the instance, which systemd hands to the JVM. No Secrets Manager.
+        env:
+          DB_URL: ${{ secrets.DB_URL }}
+          DB_USERNAME: ${{ secrets.DB_USERNAME }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          NOTIFICATIONS_ADMIN_SECRET: ${{ secrets.NOTIFICATIONS_ADMIN_SECRET }}
+          MAIL_USERNAME: ${{ secrets.MAIL_USERNAME }}
+          MAIL_PASSWORD: ${{ secrets.MAIL_PASSWORD }}
+          AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
+          GOOGLE_OAUTH_CLIENT_IDS: ${{ secrets.GOOGLE_OAUTH_CLIENT_IDS }}
+          API_BASE_URL: ${{ secrets.API_BASE_URL }}
+          CORS_ALLOWED_ORIGINS: ${{ secrets.CORS_ALLOWED_ORIGINS }}
+          FIREBASE_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
         run: |
           set -euo pipefail
 
+          # A missing secret here fails loudly with its name. On the server it
+          # would surface as "Could not resolve placeholder" twenty minutes
+          # from now, which is a much worse afternoon.
+          for required in DB_URL DB_USERNAME DB_PASSWORD JWT_SECRET \
+              NOTIFICATIONS_ADMIN_SECRET MAIL_USERNAME MAIL_PASSWORD \
+              AWS_S3_BUCKET GOOGLE_OAUTH_CLIENT_IDS API_BASE_URL; do
+            if [ -z "${!required}" ]; then
+              echo "::error::GitHub secret '$required' is not set (Settings -> Secrets and variables -> Actions)"
+              exit 1
+            fi
+          done
+
+          # Firebase is optional: no key, no push notifications, app still runs.
+          FIREBASE_ENABLED=true
+          if [ -z "$FIREBASE_JSON" ]; then
+            FIREBASE_ENABLED=false
+            echo "FIREBASE_SERVICE_ACCOUNT_JSON not set - push notifications disabled"
+          fi
+
+          # The environment file is assembled here and shipped base64-encoded,
+          # so passwords full of shell metacharacters survive the trip intact.
+          # The service-account JSON is multi-line, which systemd env files
+          # cannot hold - it travels separately and lands as its own file.
+          cat > /tmp/prod.env <<EOF
+          SERVER_PORT=8080
+          AWS_REGION=${AWS_REGION}
+          DB_URL=${DB_URL}
+          DB_USERNAME=${DB_USERNAME}
+          DB_PASSWORD=${DB_PASSWORD}
+          JWT_SECRET=${JWT_SECRET}
+          NOTIFICATIONS_ADMIN_SECRET=${NOTIFICATIONS_ADMIN_SECRET}
+          MAIL_USERNAME=${MAIL_USERNAME}
+          MAIL_PASSWORD=${MAIL_PASSWORD}
+          AWS_S3_BUCKET=${AWS_S3_BUCKET}
+          GOOGLE_OAUTH_CLIENT_IDS=${GOOGLE_OAUTH_CLIENT_IDS}
+          API_BASE_URL=${API_BASE_URL}
+          CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-*}
+          FIREBASE_ENABLED=${FIREBASE_ENABLED}
+          FIREBASE_SERVICE_ACCOUNT_PATH=/etc/gahoi-milan/firebase.json
+          EOF
+          # The heredoc above is indented two spaces by YAML; systemd ignores
+          # leading whitespace in env files, so that is harmless.
+
+          ENV_B64=$(base64 -w0 /tmp/prod.env)
+          FB_B64=$(printf '%s' "$FIREBASE_JSON" | base64 -w0)
+          rm -f /tmp/prod.env
+
           # The command list goes into a file rather than an inline
-          # --parameters string. Inline, any single quote inside a command
-          # closes the shell's quoting early and the remainder is parsed as
-          # code - which is what the port-check pattern below used to do.
-          #
-          # The heredoc delimiter is quoted, so the runner's shell expands
-          # nothing. GitHub still substitutes its own expressions before the
-          # script is written, and $(...) stays literal for the instance.
+          # --parameters string - inline, any single quote inside a command
+          # closes the shell's quoting early. The heredoc delimiter is quoted,
+          # so the runner expands nothing; $(...) stays literal for the
+          # instance.
           #
           # These commands run under /bin/sh on the instance - dash, not bash.
           # No pipefail, no [[ ]], no arrays. Everything below is POSIX.
@@ -88,16 +148,20 @@ jobs:
           {
             "commands": [
               "set -eu",
-              "test -f /etc/gahoi-milan/gahoi-milan.env || { echo MISSING /etc/gahoi-milan/gahoi-milan.env; exit 1; }",
               "command -v aws >/dev/null || { echo installing awscli; apt-get update -qq; apt-get install -y -qq unzip curl; curl -fsSL https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip -o /tmp/awscliv2.zip; unzip -q -o /tmp/awscliv2.zip -d /tmp; /tmp/aws/install --update; ln -sf /usr/local/bin/aws /usr/bin/aws; }",
+              "install -d -m 750 -o root -g gahoi /etc/gahoi-milan",
+              "printf %s ENVB64_PLACEHOLDER | base64 -d > /etc/gahoi-milan/gahoi-milan.env",
+              "chown root:gahoi /etc/gahoi-milan/gahoi-milan.env; chmod 640 /etc/gahoi-milan/gahoi-milan.env",
+              "printf %s FBB64_PLACEHOLDER | base64 -d > /etc/gahoi-milan/firebase.json",
+              "chown root:gahoi /etc/gahoi-milan/firebase.json; chmod 640 /etc/gahoi-milan/firebase.json",
               "if [ -f /opt/gahoi-milan/app.jar ]; then cp /opt/gahoi-milan/app.jar /opt/gahoi-milan/app.previous.jar; fi",
-              "aws s3 cp s3://BUCKET_PLACEHOLDER/KEY_PLACEHOLDER /tmp/app-new.jar --region REGION_PLACEHOLDER",
+              "aws s3 cp s3://BUCKET_PLACEHOLDER/KEY_PLACEHOLDER /tmp/app-new.jar --region REGION_PLACEHOLDER --no-progress",
               "mv /tmp/app-new.jar /opt/gahoi-milan/app.jar",
               "chown gahoi:gahoi /opt/gahoi-milan/app.jar",
               "chmod 644 /opt/gahoi-milan/app.jar",
               "systemctl restart gahoi-milan",
               "echo waiting for health",
-              "for i in $(seq 1 45); do if curl -fsS --max-time 3 http://127.0.0.1:8080/actuator/health 2>/dev/null | grep -q UP; then echo APP HEALTHY; break; fi; if [ $i -eq 45 ]; then echo HEALTH CHECK FAILED; journalctl -u gahoi-milan -n 60 --no-pager; cp /opt/gahoi-milan/app.previous.jar /opt/gahoi-milan/app.jar 2>/dev/null && systemctl restart gahoi-milan && echo ROLLED BACK; exit 1; fi; sleep 2; done",
+              "for i in $(seq 1 45); do if curl -fsS --max-time 3 http://127.0.0.1:8080/actuator/health 2>/dev/null | grep -q UP; then echo APP HEALTHY; break; fi; if [ $i -eq 45 ]; then echo HEALTH CHECK FAILED; journalctl -u gahoi-milan -n 60 --no-pager; exit 1; fi; sleep 2; done",
               "nginx -t || { echo NGINX CONFIG BROKEN; exit 1; }",
               "systemctl enable --now nginx",
               "systemctl is-active --quiet nginx || { echo NGINX NOT RUNNING; systemctl status nginx --no-pager; exit 1; }",
@@ -108,11 +172,13 @@ jobs:
           SSMEOF
 
           # Substitution happens after the file is written, so the values never
-          # pass through shell quoting.
-          sed -i "s|BUCKET_PLACEHOLDER|${{ secrets.AWS_ARTIFACT_BUCKET }}|; s|KEY_PLACEHOLDER|${{ steps.upload.outputs.key }}|; s|REGION_PLACEHOLDER|${AWS_REGION}|" /tmp/ssm-params.json
+          # pass through shell quoting. base64 never contains | or the sed
+          # metacharacters, so the blobs are safe to splice this way.
+          sed -i "s|BUCKET_PLACEHOLDER|${{ secrets.AWS_ARTIFACT_BUCKET }}|; s|KEY_PLACEHOLDER|${{ steps.upload.outputs.key }}|; s|REGION_PLACEHOLDER|${AWS_REGION}|; s|ENVB64_PLACEHOLDER|${ENV_B64}|; s|FBB64_PLACEHOLDER|${FB_B64}|" /tmp/ssm-params.json
 
+          # Never cat this file on failure - it now carries the secrets.
           python3 -c "import json,sys; json.load(open('/tmp/ssm-params.json'))" \
-            || { echo "::error::generated SSM parameters are not valid JSON"; cat /tmp/ssm-params.json; exit 1; }
+            || { echo "::error::generated SSM parameters are not valid JSON"; exit 1; }
 
           CMD=$(aws ssm send-command \
             --instance-ids "${{ secrets.EC2_INSTANCE_ID }}" \
