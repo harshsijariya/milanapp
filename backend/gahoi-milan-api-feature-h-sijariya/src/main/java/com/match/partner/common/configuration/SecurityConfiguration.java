@@ -36,6 +36,11 @@ public class SecurityConfiguration {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers(
+                                // Liveness probe for the deploy and any uptime
+                                // monitor. Exposes only {"status":"UP"} -
+                                // show-details=never keeps the database and
+                                // disk component details out of the response.
+                                "/actuator/health",
                                 "/api/v1/auth/**",
                                 "/api/v1/user/**",
                                 "/api/v1/users/**",
