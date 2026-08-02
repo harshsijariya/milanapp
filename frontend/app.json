@@ -65,6 +65,13 @@
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "b7ca2b30-3e46-41b9-8bee-e18ada82434f"
+      }
+    },
+    "owner": "jeevanmilansathi"
   }
 }
