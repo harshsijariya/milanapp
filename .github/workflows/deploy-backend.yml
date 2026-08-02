@@ -73,27 +73,22 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Sent over SSM rather than SSH. GitHub's runners have no fixed IP,
-          # so opening port 22 to them would mean opening it to the internet.
-          # SSM reaches the instance through its outbound connection to AWS, so
-          # nothing extra is exposed.
+          # The command list goes into a file rather than an inline
+          # --parameters commands='[...]' string. Inline, any single quote in a
+          # command terminates the shell's quoting and the rest is parsed as
+          # code - which is exactly what the ':(80|443)' pattern below did.
           #
-          # nginx is installed and enabled at first boot, so a deploy normally
-          # leaves it alone - a new jar does not need the proxy restarted. The
-          # checks at the end exist because the app health probe hits
-          # 127.0.0.1:8080 directly and would pass with nginx dead, reporting a
-          # green deploy on an API nobody outside can reach.
-          CMD=$(aws ssm send-command \
-            --instance-ids "${{ secrets.EC2_INSTANCE_ID }}" \
-            --document-name "AWS-RunShellScript" \
-            --comment "Deploy ${GITHUB_SHA::8}" \
-            --timeout-seconds 600 \
-            --parameters commands='[
+          # The heredoc delimiter is quoted, so the runner's shell expands
+          # nothing. GitHub still substitutes ${{ }} before the script is
+          # written, and $(...) stays literal for the instance to evaluate.
+          cat > /tmp/ssm-params.json <<'SSMEOF'
+          {
+            "commands": [
               "set -euo pipefail",
               "test -f /etc/gahoi-milan/gahoi-milan.env || { echo MISSING /etc/gahoi-milan/gahoi-milan.env; exit 1; }",
               "command -v aws >/dev/null || { echo installing awscli; apt-get update -qq && apt-get install -y -qq awscli; }",
               "if [ -f /opt/gahoi-milan/app.jar ]; then cp /opt/gahoi-milan/app.jar /opt/gahoi-milan/app.previous.jar; fi",
-              "aws s3 cp s3://${{ secrets.AWS_ARTIFACT_BUCKET }}/${{ steps.upload.outputs.key }} /tmp/app-new.jar --region ${{ env.AWS_REGION }}",
+              "aws s3 cp s3://BUCKET_PLACEHOLDER/KEY_PLACEHOLDER /tmp/app-new.jar --region REGION_PLACEHOLDER",
               "mv /tmp/app-new.jar /opt/gahoi-milan/app.jar",
               "chown gahoi:gahoi /opt/gahoi-milan/app.jar",
               "chmod 644 /opt/gahoi-milan/app.jar",
@@ -105,7 +100,23 @@ jobs:
               "systemctl is-active --quiet nginx || { echo NGINX NOT RUNNING; systemctl status nginx --no-pager; exit 1; }",
               "ss -lnt | grep -qE ':(80|443) ' || { echo NOTHING LISTENING ON 80/443; exit 1; }",
               "echo NGINX OK"
-            ]' \
+            ]
+          }
+          SSMEOF
+
+          # Substitution happens after the file is written, so the values never
+          # pass through shell quoting.
+          sed -i "s|BUCKET_PLACEHOLDER|${{ secrets.AWS_ARTIFACT_BUCKET }}|; s|KEY_PLACEHOLDER|${{ steps.upload.outputs.key }}|; s|REGION_PLACEHOLDER|${AWS_REGION}|" /tmp/ssm-params.json
+
+          python3 -c "import json,sys; json.load(open('/tmp/ssm-params.json'))" \
+            || { echo "::error::generated SSM parameters are not valid JSON"; cat /tmp/ssm-params.json; exit 1; }
+
+          CMD=$(aws ssm send-command \
+            --instance-ids "${{ secrets.EC2_INSTANCE_ID }}" \
+            --document-name "AWS-RunShellScript" \
+            --comment "Deploy ${GITHUB_SHA::8}" \
+            --timeout-seconds 600 \
+            --parameters file:///tmp/ssm-params.json \
             --query 'Command.CommandId' --output text)
 
           echo "id=$CMD" >> "$GITHUB_OUTPUT"
