@@ -1,6 +1,8 @@
 package com.match.partner.common.service;
 
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.regions.Region;
@@ -24,22 +26,44 @@ public class S3ServiceImpl implements S3ServiceInterface {
     private final S3Client s3Client;
     private final S3Presigner s3Presigner;
 
-    public S3ServiceImpl(@Value("${aws.access.key.id}") String accessKey,
-                         @Value("${aws.secret.access.key}") String secretKey,
+    public S3ServiceImpl(@Value("${aws.access.key.id:}") String accessKey,
+                         @Value("${aws.secret.access.key:}") String secretKey,
                          @Value("${aws.region}") String region) {
-        AwsBasicCredentials awsCreds = AwsBasicCredentials.create(accessKey, secretKey);
 
-        // Create the S3 client
+        AwsCredentialsProvider credentials = resolveCredentials(accessKey, secretKey);
+
         this.s3Client = S3Client.builder()
                 .region(Region.of(region))
-                .credentialsProvider(StaticCredentialsProvider.create(awsCreds))
+                .credentialsProvider(credentials)
                 .build();
 
-        // Create the S3 presigner
         this.s3Presigner = S3Presigner.builder()
                 .region(Region.of(region))
-                .credentialsProvider(StaticCredentialsProvider.create(awsCreds))
+                .credentialsProvider(credentials)
                 .build();
+    }
+
+    /**
+     * Keys if they are configured, the EC2 instance role otherwise.
+     *
+     * On the server no keys are set, so DefaultCredentialsProvider reaches the
+     * instance metadata service and picks up short-lived credentials from the
+     * attached role. Those rotate automatically and cannot leak into a git
+     * history or a log line, which a static key eventually does.
+     *
+     * Explicit keys remain supported for local development, where there is no
+     * instance role to borrow.
+     */
+    private static AwsCredentialsProvider resolveCredentials(String accessKey, String secretKey) {
+        boolean haveKeys = accessKey != null && !accessKey.isBlank()
+                && secretKey != null && !secretKey.isBlank();
+
+        if (haveKeys) {
+            return StaticCredentialsProvider.create(
+                    AwsBasicCredentials.create(accessKey, secretKey));
+        }
+
+        return DefaultCredentialsProvider.create();
     }
 
     // Upload file to S3
