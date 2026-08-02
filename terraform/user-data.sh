@@ -13,15 +13,30 @@ set -euxo pipefail
 export DEBIAN_FRONTEND=noninteractive
 
 apt-get update -qq
-# awscli: the deploy pulls the jar from S3 using the instance role. Ubuntu
-# does not ship it, and its absence only surfaces mid-deploy.
 apt-get install -y -qq \
   openjdk-17-jre-headless \
   nginx \
   certbot python3-certbot-nginx \
   mysql-client \
-  ruby-full wget curl unzip jq \
-  awscli
+  ruby-full wget curl unzip jq
+
+# --- AWS CLI ---------------------------------------------------------------
+# Deliberately NOT `apt-get install awscli`. Ubuntu 24.04 dropped the package
+# ("no installation candidate"), and because this script runs under `set -e`
+# that one line aborted the whole bootstrap - no service user, no directories,
+# no unit file. The official v2 installer is version-independent.
+#
+# The deploy needs this: it pulls the jar from S3 with the instance role.
+if ! command -v aws >/dev/null; then
+  curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
+  unzip -q -o /tmp/awscliv2.zip -d /tmp
+  /tmp/aws/install --update
+  # v2 installs to /usr/local/bin, which is not on root's PATH under every
+  # non-login shell (SSM's, for one).
+  ln -sf /usr/local/bin/aws /usr/bin/aws
+  rm -rf /tmp/awscliv2.zip /tmp/aws
+fi
+aws --version
 
 # --- Service account -------------------------------------------------------
 # No login shell, no home directory: it exists to own a process.

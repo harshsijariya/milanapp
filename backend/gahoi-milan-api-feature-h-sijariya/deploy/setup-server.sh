@@ -28,6 +28,23 @@ apt-get install -y -qq \
   mysql-client \
   unzip curl
 
+echo "==> Installing the AWS CLI"
+# Deliberately NOT `apt-get install awscli`. Ubuntu 24.04 dropped the package,
+# and under `set -e` that one failure aborts everything below it. The official
+# v2 installer does not depend on the distro's Python packaging.
+#
+# The deploy needs this: it pulls the jar from S3 with the instance role.
+if ! command -v aws >/dev/null; then
+  curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
+  unzip -q -o /tmp/awscliv2.zip -d /tmp
+  /tmp/aws/install --update
+  # v2 lands in /usr/local/bin, which is not on root's PATH under every
+  # non-login shell - SSM's, for one.
+  ln -sf /usr/local/bin/aws /usr/bin/aws
+  rm -rf /tmp/awscliv2.zip /tmp/aws
+fi
+echo "    $(aws --version)"
+
 echo "==> Creating the service account"
 # No login shell and no home directory: this account exists to own a process,
 # and giving it either would only widen what a compromise reaches.
@@ -37,6 +54,22 @@ echo "==> Creating directories"
 install -d -m 755 -o gahoi -g gahoi /opt/gahoi-milan
 install -d -m 755 -o gahoi -g gahoi /var/log/gahoi-milan
 install -d -m 750 -o root  -g gahoi /etc/gahoi-milan
+
+echo "==> Environment file"
+# The deploy refuses to run without this. It holds no credentials - only which
+# Secrets Manager secret to read; the instance role supplies the rest.
+if [[ ! -f /etc/gahoi-milan/gahoi-milan.env ]]; then
+  cat > /etc/gahoi-milan/gahoi-milan.env <<'ENVFILE'
+SECRET_ID=gahoi-milan/prod
+AWS_REGION=ap-south-1
+SERVER_PORT=8080
+ENVFILE
+  echo "    created"
+else
+  echo "    already present - leaving it alone"
+fi
+chown root:gahoi /etc/gahoi-milan/gahoi-milan.env
+chmod 640 /etc/gahoi-milan/gahoi-milan.env
 
 echo "==> Adding swap"
 # A t3.small has 2 GB, enough for the 1 GB heap plus the OS in normal use.
