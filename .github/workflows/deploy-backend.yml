@@ -74,13 +74,13 @@ jobs:
           set -euo pipefail
 
           # The command list goes into a file rather than an inline
-          # --parameters commands='[...]' string. Inline, any single quote in a
-          # command terminates the shell's quoting and the rest is parsed as
-          # code - which is exactly what the ':(80|443)' pattern below did.
+          # --parameters string. Inline, any single quote inside a command
+          # closes the shell's quoting early and the remainder is parsed as
+          # code - which is what the port-check pattern below used to do.
           #
           # The heredoc delimiter is quoted, so the runner's shell expands
-          # nothing. GitHub still substitutes ${{ }} before the script is
-          # written, and $(...) stays literal for the instance to evaluate.
+          # nothing. GitHub still substitutes its own expressions before the
+          # script is written, and $(...) stays literal for the instance.
           cat > /tmp/ssm-params.json <<'SSMEOF'
           {
             "commands": [
