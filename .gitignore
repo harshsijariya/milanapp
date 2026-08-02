@@ -77,41 +77,12 @@ agenthub/agents/youtube/db
 .cache/
 
 # Mobile development
-android-sdk/ -e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment and credential files
-.env
-.env.*
-*.env
-credentials.json
-*.pem
-*.key
-.credentials
--e 
-# Environment and credential files
+android-sdk/
+
+# Environment and credential files.
+# Deliberately NOT `*.env.*` - that pattern also matched Spring's
+# org.springframework.boot.env.EnvironmentPostProcessor.imports and silently
+# kept the Secrets Manager loader out of every CI build.
 .env
 .env.*
 *.env
