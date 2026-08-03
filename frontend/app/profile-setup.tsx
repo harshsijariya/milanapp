@@ -2,15 +2,16 @@ import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
   TouchableOpacity,
   ActivityIndicator,
   Alert,
 } from 'react-native';
+import FormScroll from '../components/FormScroll';
 import { Image } from 'expo-image';
 import { useState, useEffect, useCallback } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useLocalSearchParams } from 'expo-router';
 import { profileAPI } from '../utils/api';
 import { useGuardedRouter } from '../utils/useGuardedRouter';
 import { usePhotoUpload, MAX_PHOTOS } from '../utils/usePhotoUpload';
@@ -46,6 +47,23 @@ const THUMB_H = photoHeight(THUMB_W);
 export default function ProfileSetupScreen() {
   const router = useGuardedRouter();
   const insets = useSafeAreaInsets();
+
+  /**
+   * Register navigates here with `replace`, so on the first run there is no
+   * screen behind this one. `router.back()` then fell out of the stack to the
+   * welcome route, which looked exactly like being signed out - and tapping
+   * "Create new account" there really did start a second account.
+   *
+   * First run therefore offers Skip and goes to the feed; later visits, opened
+   * from the profile tab, still just close.
+   */
+  const { first } = useLocalSearchParams<{ first?: string }>();
+  const isFirstRun = first === '1';
+
+  const exit = useCallback(() => {
+    if (isFirstRun) router.replace('/(tabs)/home');
+    else router.back();
+  }, [isFirstRun, router]);
 
   const [step, setStep] = useState(0);
   const [values, setValues] = useState<Record<string, Record<string, any>>>({});
@@ -122,7 +140,7 @@ export default function ProfileSetupScreen() {
     }
 
     if (step < STEPS.length - 1) setStep(step + 1);
-    else router.back();
+    else exit();
   };
 
 
@@ -137,13 +155,21 @@ export default function ProfileSetupScreen() {
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <View style={styles.topBar}>
-        <TouchableOpacity
-          hitSlop={12}
-          onPress={() => (step > 0 ? setStep(step - 1) : router.back())}
-          accessibilityLabel={step > 0 ? 'Back' : 'Close'}
-        >
-          <Ionicons name={step > 0 ? 'arrow-back' : 'close'} size={26} color={colors.heading} />
-        </TouchableOpacity>
+        {step > 0 ? (
+          <TouchableOpacity hitSlop={12} onPress={() => setStep(step - 1)} accessibilityLabel="Back">
+            <Ionicons name="arrow-back" size={26} color={colors.heading} />
+          </TouchableOpacity>
+        ) : isFirstRun ? (
+          // A word, not an X. Right after signing up, a close button reads as
+          // "discard this account" - Skip says what actually happens.
+          <TouchableOpacity hitSlop={12} onPress={exit} accessibilityLabel="Skip for now">
+            <Text style={styles.skip}>Skip</Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity hitSlop={12} onPress={exit} accessibilityLabel="Close">
+            <Ionicons name="close" size={26} color={colors.heading} />
+          </TouchableOpacity>
+        )}
         <Text style={styles.stepCount}>
           Step {step + 1} of {STEPS.length}
         </Text>
@@ -154,11 +180,7 @@ export default function ProfileSetupScreen() {
         <View style={[styles.fill, { width: `${((step + 1) / STEPS.length) * 100}%` }]} />
       </View>
 
-      <ScrollView
-        contentContainerStyle={styles.scroll}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-      >
+      <FormScroll contentContainerStyle={styles.scroll}>
         <Text style={styles.title}>{spec ? spec.title : 'Your photos'}</Text>
         <Text style={styles.subtitle}>
           {spec ? spec.subtitle : 'Profiles with a photo get far more responses'}
@@ -192,7 +214,7 @@ export default function ProfileSetupScreen() {
         )}
 
         <View style={{ height: spacing.xl }} />
-      </ScrollView>
+      </FormScroll>
 
       {/* Back sits beside Save rather than replacing it: the thumb is already
           down here, so stepping back costs one tap instead of a reach to the
@@ -243,6 +265,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
   },
   stepCount: { fontSize: font.body, color: colors.fieldLabel, fontWeight: '600' },
+  skip: { fontSize: font.title, color: colors.brand, fontWeight: '600' },
   track: {
     height: 3,
     backgroundColor: colors.hairline,

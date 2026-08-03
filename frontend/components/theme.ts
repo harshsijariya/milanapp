@@ -7,6 +7,16 @@
  * login/register screens without a jarring switch.
  */
 
+/**
+ * The one colour a primary button is ever filled with.
+ *
+ * Same value as the landing screen's background, so Log in and Sign up read as
+ * the same product as the screen that sent you to them. Declared above `colors`
+ * so `accentAlt` can point at it rather than repeating the literal - two copies
+ * of a brand colour drift apart the first time someone tweaks one.
+ */
+const BRAND = '#F43F5E';
+
 export const colors = {
   // Surfaces
   bg: '#FFFFFF',
@@ -29,10 +39,13 @@ export const colors = {
   border: '#DBDBDB',
   hairline: '#EFEFEF',
 
-  // Accent - the pink used on the auth screens' primary buttons.
+  // Accent - the pink used for highlights and small chrome.
   accent: '#EC4899',
-  accentAlt: '#F43F5E',
   accentSoft: '#FCE7F0',
+
+  /** Primary button fill. `accentAlt` is the older name for the same colour. */
+  brand: BRAND,
+  accentAlt: BRAND,
 
   // Secondary action colour, used where Instagram uses blue.
   link: '#0095F6',

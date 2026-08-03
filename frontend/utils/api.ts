@@ -26,9 +26,19 @@ const metroHost = (): string | null => {
 };
 
 const getBackendUrl = () => {
-  // In development, follow Metro. This is deliberately checked before the env
-  // var: a stale EXPO_PUBLIC_BACKEND_URL is the usual reason the app cannot
-  // reach the API after a network change.
+  // An explicitly set EXPO_PUBLIC_BACKEND_URL always wins, in dev as well as
+  // release. Setting it is a deliberate act - "point the emulator at
+  // production" - and auto-detection quietly overriding it is worse than the
+  // stale-value problem the old ordering avoided.
+  const configured = process.env.EXPO_PUBLIC_BACKEND_URL?.trim();
+  if (configured) {
+    // Trailing slashes produce //api/v1, which some proxies 404.
+    return configured.replace(/\/+$/, "");
+  }
+
+  // Otherwise in development, follow Metro: it already knows the machine's
+  // current address, so the app follows the laptop across networks instead of
+  // pointing at whatever IP was baked in.
   if (__DEV__) {
     const host = metroHost();
     if (host && host !== "localhost" && host !== "127.0.0.1") {
@@ -40,17 +50,20 @@ const getBackendUrl = () => {
     if (Platform.OS === "android") {
       return `http://10.0.2.2:${BACKEND_PORT}`;
     }
-    return `http://localhost:${BACKEND_PORT}`;
   }
 
-  // Release builds use the configured URL.
-  return (
-    process.env.EXPO_PUBLIC_BACKEND_URL ?? `http://localhost:${BACKEND_PORT}`
-  );
+  return `http://localhost:${BACKEND_PORT}`;
 };
 
 const BACKEND_URL = getBackendUrl();
 const API_URL = BACKEND_URL + "/api/v1";
+
+/**
+ * Exported so uploads resolve the host the same way every other request does.
+ * A second copy of this logic elsewhere is how one screen ends up talking to
+ * localhost while the rest of the app talks to production.
+ */
+export { BACKEND_URL, API_URL };
 
 console.log("🔧 API Configuration:");
 console.log("Platform:", Platform.OS);

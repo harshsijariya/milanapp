@@ -3,6 +3,7 @@ import { Platform, Alert } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { API_URL } from './api';
 
 /** Matches the backend's per-profile cap. */
 export const MAX_PHOTOS = 5;
@@ -41,8 +42,7 @@ export function usePhotoUpload({ count, onUploaded }: Options) {
       setUploading(true);
       try {
         const token = await AsyncStorage.getItem('auth_token');
-        const backendUrl = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:8080';
-        const endpoint = `${backendUrl}/api/v1/attachment/upload`;
+        const endpoint = `${API_URL}/attachment/upload`;
         const auth = { Authorization: token ? `Bearer ${token}` : '' };
         let status = 500;
 
