@@ -66,6 +66,14 @@ public class UserProfileDTO {
     private LocalDateTime occupationStartDate;
     private LocalDateTime lastActive;
 
+    /**
+     * How complete this profile is, 0-100. Read from the entity, where it is
+     * recalculated on every save - the client must not try to derive it from
+     * the fields below, because the weights live in profile_completion_weight
+     * and change without an app release.
+     */
+    private Integer profileCompletion;
+
     private String profileImage;
     private List<String> profileImages;
     private List<ProfileImageDto> profileImageDetails;

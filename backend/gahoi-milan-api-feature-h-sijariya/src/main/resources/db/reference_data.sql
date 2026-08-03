@@ -678,7 +678,9 @@ INSERT IGNORE INTO profile_completion_weight (field_name, weight, section) VALUE
   ('organization',      2, 'EDUCATION'),
   ('gotra',             4, 'RELIGION'),
   ('aakna',             3, 'RELIGION'),
-  ('rashi',             2, 'RELIGION'),
+  -- Must be the Java field name on UserProfile, not the lookup_option category.
+  -- The dropdown is called 'rashi'; the entity field it writes to is 'zodiac'.
+  ('zodiac',            2, 'RELIGION'),
   ('nakshatra',         2, 'RELIGION'),
   ('manglik',           2, 'RELIGION'),
   ('fathersName',       3, 'FAMILY'),

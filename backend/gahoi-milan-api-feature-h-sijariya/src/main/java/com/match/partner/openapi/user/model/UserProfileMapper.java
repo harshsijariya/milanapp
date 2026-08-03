@@ -88,6 +88,7 @@ public class UserProfileMapper {
         userProfileDTO.setOrganization(userProfile.getOrganization());
         userProfileDTO.setOccupationStartDate(userProfile.getOccupationStartDate());
         userProfileDTO.setLastActive(userProfile.getLastActive());
+        userProfileDTO.setProfileCompletion(userProfile.getProfileCompletion());
         if (userProfile.getStatus() != null)
             userProfileDTO.setStatus(userProfile.getStatus().getValue());
 

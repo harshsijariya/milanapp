@@ -62,7 +62,12 @@ mysql -h $DB -u admin -p < Dump20260725.sql
 mysql -h $DB -u admin -p marriage_portal < reference_data.sql
 mysql -h $DB -u admin -p marriage_portal < created_at.sql
 mysql -h $DB -u admin -p marriage_portal < notifications.sql
+mysql -h $DB -u admin -p marriage_portal < completion_zodiac_fix.sql
 ```
+
+`completion_zodiac_fix.sql` is safe to re-run and is also needed on databases
+that were already loaded — without it the profile completion score is capped at
+98% and the log fills with `references unknown field 'rashi'`.
 
 Password is `DB_PASSWORD` in `~/.gahoi-milan-secrets.txt`.
 
