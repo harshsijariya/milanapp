@@ -34,12 +34,45 @@ public class UserProfileController {
         return  userProfileService.getUser(userName);
     }
 
+    /**
+     * @param oppositeGender the browse feed passes true so a man is shown women
+     *                       and a woman men. Defaults to false, which keeps
+     *                       "see all profiles" - and any existing client that
+     *                       has not been updated - listing everyone.
+     */
     @GetMapping("/users")
     public Page<UserDto> getUsers(@RequestAttribute("username") String userName,
                                   @RequestParam(defaultValue = "0") int page,
-                                  @RequestParam(defaultValue = "10") int size) {
-        return userProfileService.getUsers(page, size, userName);
+                                  @RequestParam(defaultValue = "10") int size,
+                                  @RequestParam(defaultValue = "false") boolean oppositeGender) {
+        return userProfileService.getUsers(page, size, userName, oppositeGender);
     }
+
+    /**
+     * Hide or unhide your own profile.
+     *
+     * The subject is always the caller, taken from the JWT - there is no id in
+     * the path, so there is nothing to swap for someone else's.
+     */
+    @PatchMapping("/user/profile/visibility")
+    public ResponseEntity<Void> setVisibility(@RequestAttribute("username") String userName,
+                                              @RequestBody VisibilityRequest request) {
+        userProfileService.setProfileHidden(userName, request.hidden());
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Delete your own profile. Soft delete - see the service for why the row
+     * has to survive.
+     */
+    @DeleteMapping("/user/profile")
+    public ResponseEntity<Void> deleteOwnProfile(@RequestAttribute("username") String userName) {
+        userProfileService.deleteOwnProfile(userName);
+        return ResponseEntity.noContent().build();
+    }
+
+    /** Body of {@link #setVisibility}. */
+    public record VisibilityRequest(boolean hidden) {}
 
     @GetMapping("/users/{id}")
     public UserProfileDTO getUserById(@RequestAttribute("username") String userName,

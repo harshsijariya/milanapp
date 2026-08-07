@@ -1,10 +1,12 @@
 const fs = require('fs');
 const path = require('path');
+const withSideloadApkAbis = require('./plugins/withSideloadApkAbis');
+const withScreenshotBlocked = require('./plugins/withScreenshotBlocked');
 
 /**
  * Dynamic Expo config.
  *
- * Everything static lives in app.json. This wrapper handles the two things
+ * Everything static lives in app.json. This wrapper handles the three things
  * that must vary by machine or by build profile.
  *
  * 1. google-services.json is required for FCM delivery but is gitignored and
@@ -22,6 +24,23 @@ const path = require('path');
  *    release build would let anyone on the same network downgrade the
  *    connection and read profiles, phone numbers and auth tokens in the
  *    clear. So it follows the API URL: on for http://, off for https://.
+ *
+ * 3. Native library packaging. A sideloaded APK and a Play Store AAB want
+ *    opposite things here, so it follows ANDROID_SIDELOAD_APK, which eas.json
+ *    sets on the apk profiles only:
+ *      - Compression. In an APK, compressing the .so files roughly halves
+ *        them. The installer then extracts a second copy, so on-disk grows -
+ *        but the number a user on mobile data feels is the download. In an AAB
+ *        it is pure loss: Play recompresses for delivery regardless, so
+ *        compressing here saves nothing and only costs the extracted duplicate.
+ *      - ABIs. An APK carries every ABI it was built with, and x86/x86_64 are
+ *        emulator-only for this audience - about 10 MB of the download that no
+ *        real phone executes. An AAB is split per device at delivery, so there
+ *        the extra ABIs cost users nothing and dropping x86_64 would only lock
+ *        out Chromebooks. See plugins/withSideloadApkAbis.js for why this is
+ *        not just a `buildArchs` setting.
+ *    Unset (local `expo run:android`) keeps all ABIs, uncompressed, so the
+ *    emulator still works.
  */
 module.exports = ({ config }) => {
   const googleServices = path.join(__dirname, 'google-services.json');
@@ -40,13 +59,20 @@ module.exports = ({ config }) => {
   const apiUrl = process.env.EXPO_PUBLIC_BACKEND_URL || '';
   const needsCleartext = !apiUrl || apiUrl.startsWith('http://');
 
+  const sideloadApk = process.env.ANDROID_SIDELOAD_APK === '1';
+  const abis = ['armeabi-v7a', 'arm64-v8a'];
+
   config.plugins = (config.plugins || []).map((plugin) => {
     if (Array.isArray(plugin) && plugin[0] === 'expo-build-properties') {
       return [
         plugin[0],
         {
           ...plugin[1],
-          android: { ...(plugin[1].android || {}), usesCleartextTraffic: needsCleartext },
+          android: {
+            ...(plugin[1].android || {}),
+            usesCleartextTraffic: needsCleartext,
+            useLegacyPackaging: sideloadApk,
+          },
         },
       ];
     }
@@ -55,8 +81,14 @@ module.exports = ({ config }) => {
 
   console.log(
     `[expo config] API ${apiUrl || '(unset - local dev)'} | ` +
-      `cleartext HTTP ${needsCleartext ? 'ALLOWED' : 'blocked'}`
+      `cleartext HTTP ${needsCleartext ? 'ALLOWED' : 'blocked'} | ` +
+      `native libs ${sideloadApk ? `compressed, ${abis.join('+')} only` : 'uncompressed, all ABIs'}`
   );
 
-  return config;
+  // Members' photos and contact details are the whole content here, so the
+  // window is marked FLAG_SECURE on every build - see the plugin for what that
+  // does and does not stop.
+  config = withScreenshotBlocked(config);
+
+  return sideloadApk ? withSideloadApkAbis(config, { abis }) : config;
 };

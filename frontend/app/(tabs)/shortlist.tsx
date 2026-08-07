@@ -10,7 +10,7 @@ import {
   RefreshControl,
 } from 'react-native';
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { shortlistAPI } from '../../utils/api';
 import { useGuardedRouter } from '../../utils/useGuardedRouter';

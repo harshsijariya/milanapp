@@ -2,6 +2,9 @@ import axios from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
 import Constants from "expo-constants";
+// The imperative router, because this runs in an interceptor rather than a
+// component - there is no hook context here.
+import { router } from "expo-router";
 
 const BACKEND_PORT = 8080;
 
@@ -65,10 +68,12 @@ const API_URL = BACKEND_URL + "/api/v1";
  */
 export { BACKEND_URL, API_URL };
 
-console.log("🔧 API Configuration:");
-console.log("Platform:", Platform.OS);
-console.log("Backend URL:", BACKEND_URL);
-console.log("API URL:", API_URL);
+if (__DEV__) {
+  console.log("🔧 API Configuration:");
+  console.log("Platform:", Platform.OS);
+  console.log("Backend URL:", BACKEND_URL);
+  console.log("API URL:", API_URL);
+}
 
 const api = axios.create({
   baseURL: API_URL,
@@ -86,14 +91,22 @@ api.interceptors.request.use(
       config.headers.Authorization = `Bearer ${token}`;
     }
 
-    console.log("📤 API Request:");
-    console.log("Method:", config.method?.toUpperCase());
-    console.log("URL:", config.url);
-    console.log("Base URL:", config.baseURL);
-    console.log("Full URL:", `${config.baseURL}${config.url}`);
-    console.log("Headers:", config.headers);
-    if (config.data) {
-      console.log("Data:", config.data);
+    // Dev only, and deliberately so. `config.headers` carries the bearer token
+    // and `config.data` carries whatever the user just typed - phone numbers,
+    // birth dates, the lot. In a release build that all lands in logcat, which
+    // any other app holding READ_LOGS, or anyone with adb, can read back. The
+    // __DEV__ guard also lets the minifier drop the whole block, so release
+    // builds skip serializing every payload twice.
+    if (__DEV__) {
+      console.log("📤 API Request:");
+      console.log("Method:", config.method?.toUpperCase());
+      console.log("URL:", config.url);
+      console.log("Base URL:", config.baseURL);
+      console.log("Full URL:", `${config.baseURL}${config.url}`);
+      console.log("Headers:", config.headers);
+      if (config.data) {
+        console.log("Data:", config.data);
+      }
     }
 
     return config;
@@ -107,10 +120,15 @@ api.interceptors.request.use(
 // Response interceptor with logging
 api.interceptors.response.use(
   (response) => {
-    console.log("✅ API Response:");
-    console.log("Status:", response.status);
-    console.log("URL:", response.config.url);
-    console.log("Data:", response.data);
+    // Same reasoning as the request interceptor: response bodies are other
+    // members' profiles. Errors below stay logged in release - they are the
+    // only trail for diagnosing a failure, and carry status and URL, not data.
+    if (__DEV__) {
+      console.log("✅ API Response:");
+      console.log("Status:", response.status);
+      console.log("URL:", response.config.url);
+      console.log("Data:", response.data);
+    }
     return response;
   },
   (error) => {
@@ -123,9 +141,68 @@ api.interceptors.response.use(
       `❌ API ${error.config?.method?.toUpperCase() ?? ""} ${url} → ${status}`,
       typeof body === "string" ? body : JSON.stringify(body ?? error.message),
     );
+
+    if (isExpiredSession(error)) onSessionExpired();
+
     return Promise.reject(error);
   },
 );
+
+/**
+ * True when this failure means "your token is no longer good", as opposed to
+ * "you may not do that".
+ *
+ * The distinction matters because both arrive as 403. Spring Security answers
+ * an expired JWT with 403 and a body naming the expiry; it also answers a
+ * genuine authorisation failure with 403. Logging someone out for the second
+ * kind would boot them mid-session for tapping something they cannot do, so the
+ * body is checked rather than the status alone. 401 needs no such check - the
+ * backend only issues it for authentication.
+ */
+function isExpiredSession(error: any): boolean {
+  const status = error?.response?.status;
+  if (status !== 401 && status !== 403) return false;
+  if (status === 401) return true;
+
+  const body = error.response?.data;
+  const text = typeof body === "string" ? body : JSON.stringify(body ?? "");
+  return /jwt expired|token has expired|expiredjwt/i.test(text);
+}
+
+/**
+ * Drop the dead session and send the user back to sign in.
+ *
+ * Without this an expired token - which happens to everyone every 24h, since
+ * security.jwt.expiration-time is 86400000 - left the app sitting on a screen
+ * where every request had failed: empty lists, "Failed to load" everywhere, and
+ * no hint that signing in again was the fix. Users cannot be expected to work
+ * that out.
+ *
+ * Guarded because a single screen fires several requests at once, and a burst
+ * of expired responses would otherwise queue up a redirect each.
+ */
+let redirecting = false;
+
+async function onSessionExpired(): Promise<void> {
+  if (redirecting) return;
+  redirecting = true;
+
+  try {
+    await AsyncStorage.multiRemove(["auth_token", "token_expiry"]);
+  } catch {
+    // Storage failing here must not swallow the redirect - a user stuck on a
+    // broken screen is worse than a stale key.
+  }
+
+  // router.replace, not push: the dead session must not be reachable with Back.
+  router.replace("/login");
+
+  // Cleared on the next tick rather than never, so a later expiry in the same
+  // app run still redirects.
+  setTimeout(() => {
+    redirecting = false;
+  }, 1000);
+}
 
 /**
  * True when a like/connect failed only because it already exists.
@@ -162,9 +239,29 @@ export const profileAPI = {
   getMe: () => api.get("/user"),
   updateProfile: (data: any) => api.patch("/user/profile", data),
   createProfile: (data: any) => api.post("/user/profile", data),
-  getProfiles: (page = 0, size = 20) =>
-    api.get(`/users?page=${page}&size=${size}`),
+  /**
+   * @param oppositeGender true for the browse feed, which shows only the gender
+   *   you are looking for. "See all profiles" leaves it false on purpose - that
+   *   screen is meant to list every member.
+   *
+   *   Profiles with no gender recorded come back either way, because most rows
+   *   in the database still have none and excluding them empties the feed.
+   */
+  getProfiles: (page = 0, size = 20, oppositeGender = false) =>
+    api.get(`/users?page=${page}&size=${size}&oppositeGender=${oppositeGender}`),
   getProfile: (id: string | number) => api.get(`/users/${id}`),
+
+  /**
+   * Hide or unhide your own profile. Reversible - the account, photos and
+   * connections all stay intact while hidden.
+   */
+  setHidden: (hidden: boolean) => api.patch("/user/profile/visibility", { hidden }),
+
+  /**
+   * Delete your own profile. Soft delete server-side, but from the member's
+   * point of view it is gone and they are signed out.
+   */
+  deleteAccount: () => api.delete("/user/profile"),
 
   // Split GET Endpoints
   getBasicInfo: () => api.get("/user/profile/basic"),

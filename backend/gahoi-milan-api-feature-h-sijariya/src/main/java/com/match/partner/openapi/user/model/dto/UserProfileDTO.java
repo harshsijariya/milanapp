@@ -74,6 +74,15 @@ public class UserProfileDTO {
      */
     private Integer profileCompletion;
 
+    /**
+     * Whether the member has hidden their own profile.
+     *
+     * Returned so the app can show the visibility toggle in the state the
+     * server actually holds, rather than defaulting to "visible" on every
+     * launch and lying to someone who hid their profile last week.
+     */
+    private Boolean hidden;
+
     private String profileImage;
     private List<String> profileImages;
     private List<ProfileImageDto> profileImageDetails;

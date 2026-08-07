@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { useEffect, useMemo, useRef } from 'react';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useReference } from '../utils/useReference';
 import {
   colors,

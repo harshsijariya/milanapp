@@ -89,6 +89,10 @@ public class UserProfileMapper {
         userProfileDTO.setOccupationStartDate(userProfile.getOccupationStartDate());
         userProfileDTO.setLastActive(userProfile.getLastActive());
         userProfileDTO.setProfileCompletion(userProfile.getProfileCompletion());
+        // Null-safe because rows written before the hidden column existed have
+        // no value, and the app treats a missing flag as "visible" - which is
+        // right, but only if it arrives as false rather than null.
+        userProfileDTO.setHidden(Boolean.TRUE.equals(userProfile.getHidden()));
         if (userProfile.getStatus() != null)
             userProfileDTO.setStatus(userProfile.getStatus().getValue());
 

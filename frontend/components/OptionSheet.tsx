@@ -10,7 +10,7 @@ import {
   Dimensions,
 } from 'react-native';
 import { useState, useMemo, useEffect } from 'react';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ChipRow from './ChipRow';
 import { useCoveredHeight } from './FormScroll';

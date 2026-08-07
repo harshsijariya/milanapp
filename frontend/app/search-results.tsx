@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, FlatList, Image, TouchableOpacity, Platform } f
 import { useState, useEffect } from 'react';
 import { profileAPI } from '../utils/api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useGuardedRouter } from '../utils/useGuardedRouter';
 
 export default function SearchResultsScreen() {

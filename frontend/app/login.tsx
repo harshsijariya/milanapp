@@ -1,7 +1,6 @@
 import {
   View,
   Text,
-  TextInput,
   StyleSheet,
   TouchableOpacity,
   Platform,
@@ -9,12 +8,13 @@ import {
   InteractionManager,
 } from "react-native";
 import FormScroll from "../components/FormScroll";
+import FormField from "../components/FormField";
 import { colors } from "../components/theme";
 
 import { useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { authAPI } from "../utils/api";
-import { Ionicons } from "@expo/vector-icons";
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useGuardedRouter } from "../utils/useGuardedRouter";
 import { isGoogleConfigured, signInWithGoogle } from "../utils/googleSignIn";
 
@@ -23,7 +23,6 @@ export default function LoginScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
 
   const persistSession = async (data: any) => {
     if (data?.token) {
@@ -126,52 +125,31 @@ export default function LoginScreen() {
           </View>
 
           <View style={styles.formContainer}>
-            <View style={styles.inputContainer}>
-              <Ionicons
-                name="mail-outline"
-                size={20}
-                color="#8E8E8E"
-                style={styles.inputIcon}
-              />
-              <TextInput
-                testID="login-email-input"
-                style={styles.input}
-                placeholder="Email Address"
-                placeholderTextColor="#8E8E8E"
-                value={email}
-                onChangeText={setEmail}
-                keyboardType="email-address"
-                autoCapitalize="none"
-              />
-            </View>
+            <FormField
+              testID="login-email-input"
+              icon="mail-outline"
+              placeholder="Email Address"
+              value={email}
+              onChangeText={setEmail}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoComplete="email"
+              textContentType="emailAddress"
+              returnKeyType="next"
+            />
 
-            <View style={styles.inputContainer}>
-              <Ionicons
-                name="lock-closed-outline"
-                size={20}
-                color="#8E8E8E"
-                style={styles.inputIcon}
-              />
-              <TextInput
-                testID="login-password-input"
-                style={styles.input}
-                placeholder="Password"
-                placeholderTextColor="#8E8E8E"
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry={!showPassword}
-              />
-              <TouchableOpacity
-                style={styles.eyeIcon}
-                onPress={() => setShowPassword(!showPassword)}
-              >
-                <Ionicons
-                  name={showPassword ? "eye-off" : "eye"}
-                  size={20}
-                  color="#8E8E8E"
-                />
-              </TouchableOpacity>
-            </View>
+            <FormField
+              testID="login-password-input"
+              icon="lock-closed-outline"
+              placeholder="Password"
+              value={password}
+              onChangeText={setPassword}
+              secure
+              autoComplete="password"
+              textContentType="password"
+              returnKeyType="done"
+              onSubmitEditing={handleLogin}
+            />
 
             <TouchableOpacity testID="login-forgot-btn" activeOpacity={0.7}>
               <Text style={styles.forgotPassword}>Forgot Password?</Text>
@@ -275,27 +253,6 @@ const styles = StyleSheet.create({
   },
   formContainer: {
     gap: 12,
-  },
-  inputContainer: {
-    backgroundColor: "#FAFAFA",
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "#DBDBDB",
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 14,
-  },
-  inputIcon: {
-    marginRight: 10,
-  },
-  input: {
-    flex: 1,
-    paddingVertical: 14,
-    fontSize: 15,
-    color: "#262626",
-  },
-  eyeIcon: {
-    padding: 8,
   },
   forgotPassword: {
     color: "#0095F6",

@@ -9,15 +9,13 @@ import {
 } from 'react-native';
 import { useState, useCallback } from 'react';
 import { useFocusEffect } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { profileAPI, likeAPI } from '../../utils/api';
 import { useGuardedRouter } from '../../utils/useGuardedRouter';
 import { usePhotoUpload } from '../../utils/usePhotoUpload';
 import PhotoCropper from '../../components/PhotoCropper';
-import { unregisterPush } from '../../utils/notifications';
-import ConfirmSheet from '../../components/ConfirmSheet';
+import AppDrawer from '../../components/AppDrawer';
 import CompletionRing, { ringLabel } from '../../components/CompletionRing';
 import DetailCard from '../../components/DetailCard';
 import { rowsFor } from '../../components/sectionRows';
@@ -91,16 +89,7 @@ export default function ProfileScreen() {
     onUploaded: loadData,
   });
 
-  const [confirmingLogout, setConfirmingLogout] = useState(false);
-
-  const doLogout = async () => {
-    setConfirmingLogout(false);
-    // Detach this device first, otherwise the next account to sign in here
-    // keeps receiving the previous user's notifications.
-    await unregisterPush();
-    await AsyncStorage.clear();
-    router.replace('/');
-  };
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const completion = Number(user?.profileCompletion ?? 0);
   const openSection = (key: string) => router.push(`/edit-profile?section=${key}`);
@@ -127,6 +116,14 @@ export default function ProfileScreen() {
 
 
         <View style={[styles.headerTop, { paddingTop: insets.top + spacing.sm }]}>
+          <TouchableOpacity
+            style={styles.circleBtn}
+            onPress={() => setMenuOpen(true)}
+            accessibilityLabel="Open menu"
+          >
+            <Ionicons name="menu" size={20} color={colors.white} />
+          </TouchableOpacity>
+
           <View style={styles.headerBadges}>
             <TouchableOpacity
               style={styles.circleBtn}
@@ -220,25 +217,39 @@ rows={rowsFor('family', user, label)}
 rows={rowsFor('contact', user, label)}
         />
 
+        {/* Hiding, deleting and logging out all moved to Account & Settings,
+            reachable from the menu at the top. They were never part of the
+            profile itself, and having a delete button at the end of a scroll
+            you take to edit your details is a mis-tap waiting to happen. */}
         <TouchableOpacity
-          style={styles.logout}
-          onPress={() => setConfirmingLogout(true)}
+          style={styles.settingRow}
+          onPress={() => router.push('/account-settings')}
           activeOpacity={0.8}
         >
-          <Ionicons name="log-out-outline" size={18} color={colors.danger} />
-          <Text style={styles.logoutText}>Log out</Text>
+          <Ionicons name="settings-outline" size={18} color={colors.text} />
+          <View style={styles.settingCopy}>
+            <Text style={styles.settingTitle}>Account &amp; Settings</Text>
+            <Text style={styles.settingSubtitle}>
+              Visibility, deleting your account, and support
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={colors.textFaint} />
         </TouchableOpacity>
 
         <View style={{ height: 32 }} />
       </View>
 
-      <ConfirmSheet
-        visible={confirmingLogout}
-        title="Are you sure you want to Sign out?"
-        confirmLabel="Yes"
-        cancelLabel="No"
-        onCancel={() => setConfirmingLogout(false)}
-        onConfirm={doLogout}
+      <AppDrawer
+        visible={menuOpen}
+        onClose={() => setMenuOpen(false)}
+        name={user?.name}
+        memberId={user?.id}
+        avatarUrl={photos?.[0] ?? null}
+        items={[
+          { icon: 'create-outline', label: 'Edit Profile', onPress: () => router.push('/edit-profile') },
+          { icon: 'settings-outline', label: 'Account & Settings', onPress: () => router.push('/account-settings') },
+          { icon: 'headset-outline', label: 'Help & Support', onPress: () => router.push('/help-support') },
+        ]}
       />
 
       <PhotoCropper {...cropperProps} />
@@ -336,4 +347,25 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
   },
   logoutText: { color: colors.danger, fontSize: font.title, fontWeight: '600' },
+  settingRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+    paddingVertical: 14,
+    paddingHorizontal: spacing.md,
+    borderRadius: 14,
+    backgroundColor: colors.bg,
+    marginTop: spacing.sm,
+  },
+  settingCopy: { flex: 1 },
+  settingTitle: { color: colors.text, fontSize: font.title, fontWeight: '600' },
+  settingSubtitle: { color: colors.textFaint, fontSize: font.small, marginTop: 2 },
+  // No fill and no icon: delete should not look like a button you tap by
+  // reflex on the way to logging out.
+  deleteRow: {
+    alignItems: 'center',
+    paddingVertical: 14,
+    marginTop: spacing.xs,
+  },
+  deleteText: { color: colors.textFaint, fontSize: font.small, fontWeight: '600' },
 });

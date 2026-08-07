@@ -19,7 +19,20 @@ public interface UserProfileServiceInterface {
     void updateUserProfile(UserProfileDTO userProfileDTO, String userName);
     void registerUserProfile(UserProfileDTO userProfileDTO, String userName);
     UserProfileDTO getUser(String userName);
-    Page<UserDto> getUsers(int page, int size, String userName);
+    /**
+     * A page of other members.
+     *
+     * @param oppositeGender true for the browse feed, which shows only the
+     *                       gender the caller is looking for; false for "see all
+     *                       profiles", which is meant to be everyone
+     */
+    Page<UserDto> getUsers(int page, int size, String userName, boolean oppositeGender);
+
+    /** Hide or unhide the caller's own profile. Reversible. */
+    void setProfileHidden(String userName, boolean hidden);
+
+    /** Soft-delete the caller's own profile. */
+    void deleteOwnProfile(String userName);
     UserProfileDTO getUsers(Integer id, String userName);
 
     BasicInfoDTO getBasicInfo(String userName);

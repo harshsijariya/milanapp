@@ -17,6 +17,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
+import com.match.partner.openapi.notification.model.NotificationType;
+import com.match.partner.openapi.notification.service.NotificationServiceInterface;
 import com.match.partner.openapi.likes.model.ProfileLike;
 import com.match.partner.openapi.likes.model.ProfileLikeId;
 import com.match.partner.openapi.likes.repository.ProfileLikeRepository;
@@ -26,11 +28,16 @@ import com.match.partner.openapi.shortlist.model.dao.ShortlistId;
 @Service
 @RequiredArgsConstructor
 public class ViewsServiceImpl implements ViewsServiceInterface {
+
+    /** How long a viewer stays "already announced" to the same profile owner. */
+    private static final int VIEW_NOTIFY_COOLDOWN_HOURS = 24;
+
     private final ViewsRepository viewsRepository;
     private final UserProfileRepository userProfileRepository;
     private final UserMapper userMapper;
     private final ProfileLikeRepository profileLikeRepository;
     private final ShortlistRepository shortlistRepository;
+    private final NotificationServiceInterface notificationService;
 
 
     public void addView(ViewsRequest request) {
@@ -73,7 +80,13 @@ public class ViewsServiceImpl implements ViewsServiceInterface {
         id.setProfileId(profileId);
         id.setViewedBy(viewer.getId());
 
-        Views views = viewsRepository.findById(id).orElseGet(() -> {
+        Optional<Views> existing = viewsRepository.findById(id);
+
+        // Captured before the timestamp is overwritten below - afterwards there
+        // is no way left to tell a first visit from the hundredth.
+        LocalDateTime previouslyViewedAt = existing.map(Views::getViewedAt).orElse(null);
+
+        Views views = existing.orElseGet(() -> {
             Views fresh = new Views();
             fresh.setId(id);
             fresh.setViewedBy(viewer);
@@ -82,6 +95,38 @@ public class ViewsServiceImpl implements ViewsServiceInterface {
         views.setViewedAt(LocalDateTime.now());
 
         viewsRepository.save(views);
+
+        if (shouldNotifyOfView(previouslyViewedAt)) {
+            notificationService.notifyUser(
+                    profileId,
+                    NotificationType.PROFILE_VIEW,
+                    "Someone viewed your profile",
+                    viewer.getName() + " viewed your profile",
+                    viewer.getId()
+            );
+        }
+    }
+
+    /**
+     * Whether this view is worth telling the owner about.
+     *
+     * Notifying on every view would be unusable. Opening a profile, going back,
+     * and opening it again is normal browsing, and each of those hits this path
+     * - the owner would get a push per tap from a single interested person.
+     *
+     * So: notify on a first-ever view, then at most once a day per viewer. That
+     * still surfaces the thing people actually want to know ("someone is
+     * looking at me", "they came back") without turning one curious visitor
+     * into a stream of notifications.
+     *
+     * @param previouslyViewedAt when this viewer last opened this profile, or
+     *                           null if they never had
+     */
+    private boolean shouldNotifyOfView(LocalDateTime previouslyViewedAt) {
+        if (previouslyViewedAt == null) {
+            return true;
+        }
+        return previouslyViewedAt.isBefore(LocalDateTime.now().minusHours(VIEW_NOTIFY_COOLDOWN_HOURS));
     }
 
     public List<ViewsDto> getViews(String userName) {
