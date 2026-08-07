@@ -1,12 +1,74 @@
 # Lambdas
 
-Python functions meant to be deployed to AWS by hand. Nothing here is wired
-into the deploy workflow yet.
+Deployed by `.github/workflows/deploy-lambdas.yml` on merge to `main`, when
+anything under `lambdas/**` changes. See [Automated deployment](#automated-deployment)
+for the one-time setup that workflow needs.
 
 | Folder | Trigger | What it does |
 | --- | --- | --- |
 | `image_compression/` | S3 `ObjectCreated:*` on `gahoi-milan-photos` | Shrinks a profile photo in place and writes a thumbnail |
 | `kundali/` | Invoked from the backend | North Indian horoscope chart from birth date, time and place |
+
+---
+
+## Automated deployment
+
+On merge to `main`, for each function the workflow builds its dependency layer
+for `manylinux2014_aarch64`, publishes a new layer version, packages the
+handler, then creates the function if it is missing or updates it if it is not.
+The kundali function is then actually invoked, because "deployed" and "works"
+are different claims - a layer built for the wrong architecture deploys
+perfectly and fails on first import.
+
+### One-time setup
+
+**1. Create the execution role.** The workflow does not create IAM roles on
+purpose: doing so needs permissions far wider than deploying code, and a CI key
+that can mint roles is a much bigger problem than a CI key that can update a
+function. Create it once:
+
+- Trusted entity: AWS service → Lambda
+- Attach `AWSLambdaBasicExecutionRole` (CloudWatch Logs)
+- Add this inline policy so image_compression can read and write photos:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Action": ["s3:GetObject", "s3:PutObject"],
+    "Resource": "arn:aws:s3:::gahoi-milan-photos/*"
+  }]
+}
+```
+
+**2. Add the role ARN as a GitHub secret** named `LAMBDA_EXECUTION_ROLE_ARN`.
+The workflow fails fast with an explanation if it is missing, rather than
+getting halfway and leaving a published layer with no function attached.
+
+**3. Check the deploying key can actually deploy.** `AWS_ACCESS_KEY_ID` /
+`AWS_SECRET_ACCESS_KEY` already exist for the backend deploy, but that key was
+provisioned for S3 and SSM. It also needs:
+
+```
+lambda:GetFunction, lambda:CreateFunction, lambda:UpdateFunctionCode,
+lambda:UpdateFunctionConfiguration, lambda:PublishLayerVersion,
+lambda:InvokeFunction, iam:PassRole
+```
+
+`iam:PassRole` is the one people miss - creating a function means handing it the
+execution role, and without that permission `create-function` fails with an
+error that reads like the role is wrong rather than the caller.
+
+### What the workflow deliberately does not do
+
+- **Create the S3 trigger.** Set it up once by hand, and read the recursion
+  section below first. This function writes back to the bucket that triggers
+  it, and getting that wrong bills you for an infinite loop.
+- **Manage environment variables.** Tuning (`QUALITY`, `MAX_EDGE`, and so on)
+  stays in the console so it can be changed without a deploy.
+- **Delete old layer versions.** Layer versions are immutable and accumulate.
+  Prune occasionally; nothing breaks if you do not.
 
 ---
 
