@@ -43,7 +43,13 @@ const withScreenshotBlocked = require('./plugins/withScreenshotBlocked');
  *    emulator still works.
  */
 module.exports = ({ config }) => {
-  const googleServices = path.join(__dirname, 'google-services.json');
+  // EAS packs the project respecting .gitignore, and google-services.json is
+  // ignored - so a cloud build never receives the local copy and would silently
+  // come out with no FCM config at all. GOOGLE_SERVICES_FILE is an EAS file
+  // secret that materialises as a path at build time; the local file stays the
+  // fallback for `expo run:android`.
+  const googleServices =
+    process.env.GOOGLE_SERVICES_FILE || path.join(__dirname, 'google-services.json');
 
   if (fs.existsSync(googleServices)) {
     config.android = { ...(config.android || {}), googleServicesFile: './google-services.json' };
