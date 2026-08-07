@@ -7,7 +7,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import type { ReactNode } from 'react';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import FormScroll from './FormScroll';
 import { colors, font, radius, spacing } from './theme';

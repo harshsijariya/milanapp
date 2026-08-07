@@ -9,7 +9,7 @@ import {
 import FormScroll from '../components/FormScroll';
 import { Image } from 'expo-image';
 import { useState, useEffect, useCallback } from 'react';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams } from 'expo-router';
 import { profileAPI } from '../utils/api';

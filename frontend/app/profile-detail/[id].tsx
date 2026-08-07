@@ -9,7 +9,7 @@ import {
 } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { useState, useEffect, useCallback } from 'react';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { profileAPI, shortlistAPI, viewsAPI } from '../../utils/api';
 import { useGuardedRouter } from '../../utils/useGuardedRouter';

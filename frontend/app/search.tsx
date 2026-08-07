@@ -3,7 +3,7 @@ import { View, Text, TextInput, StyleSheet, TouchableOpacity, ScrollView, Platfo
 import { useState } from 'react';
 import { Picker } from '@react-native-picker/picker';
 import { profileAPI } from '../utils/api';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useGuardedRouter } from '../utils/useGuardedRouter';

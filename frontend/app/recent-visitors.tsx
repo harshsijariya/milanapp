@@ -3,7 +3,7 @@ import { Image } from 'expo-image';
 import { useState, useEffect } from 'react';
 
 import { viewsAPI, likeAPI } from '../utils/api';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useGuardedRouter } from '../utils/useGuardedRouter';
 import { confirmAction } from '../utils/confirm';
