@@ -17,10 +17,13 @@ import com.match.partner.openapi.views.service.ViewsServiceInterface;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import com.match.partner.common.configuration.ClientException;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -265,7 +268,74 @@ public class UserProfileServiceImpl implements UserProfileServiceInterface {
         return  userProfileMapper.toDto(userProfile);
     }
 
-    public Page<UserDto> getUsers(int page, int size, String userName) {
+    /**
+     * The gender a member is browsing for.
+     *
+     * Returns null when the caller's own gender is missing or is anything other
+     * than the two values this app records, and null means "do not filter". A
+     * member who has not filled in their gender yet still gets a populated feed
+     * rather than an empty screen they cannot explain.
+     */
+    private String oppositeGenderOf(String gender) {
+        if (gender == null) {
+            return null;
+        }
+        String normalised = gender.trim().toLowerCase();
+        if (normalised.equals("male")) {
+            return "Female";
+        }
+        if (normalised.equals("female")) {
+            return "Male";
+        }
+        return null;
+    }
+
+    /**
+     * Hide or unhide the caller's own profile.
+     *
+     * Takes the email from the JWT rather than an id in the request, so a
+     * member can only ever change their own visibility - there is no id to
+     * tamper with.
+     */
+    @Override
+    public void setProfileHidden(String userName, boolean hidden) {
+        UserProfile profile = requireLiveProfile(userName);
+        profile.setHidden(hidden);
+        userProfileRepository.save(profile);
+    }
+
+    /**
+     * Soft-delete the caller's own profile.
+     *
+     * Deliberately not a hard DELETE. Likes, shortlists, views and
+     * notifications all hold this id, so removing the row would either fail on
+     * the constraints or take other members' history with it. Stamping
+     * deleted_at takes the profile out of every listing and refuses the direct
+     * fetch, which is what "deleted" means to everyone else.
+     *
+     * The account is also hidden on the way out, so that if the row is ever
+     * restored it comes back invisible rather than silently reappearing in
+     * everyone's feed.
+     */
+    @Override
+    public void deleteOwnProfile(String userName) {
+        UserProfile profile = requireLiveProfile(userName);
+        profile.setDeletedAt(LocalDateTime.now());
+        profile.setHidden(true);
+        userProfileRepository.save(profile);
+    }
+
+    private UserProfile requireLiveProfile(String userName) {
+        UserProfile profile = userProfileRepository.findByEmail(userName)
+                .orElseThrow(() -> new ClientException(HttpStatus.NOT_FOUND, "Profile not found"));
+
+        if (profile.getDeletedAt() != null) {
+            throw new ClientException(HttpStatus.GONE, "This profile has already been deleted");
+        }
+        return profile;
+    }
+
+    public Page<UserDto> getUsers(int page, int size, String userName, boolean oppositeGender) {
         // Newest members first. Secondary sort on id because two profiles created
         // in the same second would otherwise come back in an arbitrary order,
         // which makes a paged list drop or repeat rows between pages.
@@ -276,10 +346,16 @@ public class UserProfileServiceImpl implements UserProfileServiceInterface {
         if (currentUserOptional.isEmpty()) {
             return userProfileRepository.findAll(pageable).map(userProfileMapper::toUserDto);
         }
-        int currentUserId = currentUserOptional.get().getId();
+        UserProfile currentUser = currentUserOptional.get();
+        int currentUserId = currentUser.getId();
 
-        // Never list the caller to themselves.
-        Page<UserProfile> userProfilesPage = userProfileRepository.findByIdNot(currentUserId, pageable);
+        // Never list the caller to themselves. When the caller asked for
+        // matches, narrow further to the gender they are looking for.
+        String lookingFor = oppositeGender ? oppositeGenderOf(currentUser.getGender()) : null;
+
+        Page<UserProfile> userProfilesPage = lookingFor == null
+                ? userProfileRepository.findByIdNot(currentUserId, pageable)
+                : userProfileRepository.findByIdNotAndGender(currentUserId, lookingFor, pageable);
 
         return userProfilesPage.map(userProfile -> {
             UserDto userDto = userProfileMapper.toUserDto(userProfile);
@@ -305,7 +381,21 @@ public class UserProfileServiceImpl implements UserProfileServiceInterface {
 
 
     public UserProfileDTO getUsers(Integer id, String userName) {
-        UserProfile userProfile = userProfileRepository.findById(id).get();
+        UserProfile userProfile = userProfileRepository.findById(id)
+                .orElseThrow(() -> new ClientException(HttpStatus.NOT_FOUND, "Profile not found"));
+
+        // A soft-deleted profile is gone as far as anyone else is concerned.
+        // Filtering it out of the listings alone would not be enough: ids are
+        // sequential and a deep link or an old notification still carries one,
+        // so the direct fetch has to refuse too.
+        //
+        // Hidden profiles are deliberately still reachable by id. Someone who
+        // has already connected, or who is looking at their own like history,
+        // should not have the other person vanish - hiding is about not being
+        // discovered in browse, not about cutting existing ties.
+        if (userProfile.getDeletedAt() != null) {
+            throw new ClientException(HttpStatus.NOT_FOUND, "This profile is no longer available");
+        }
         Optional<UserProfile>  userProfileOptional = userProfileRepository.findByEmail(userName);
         int profileId = userProfileOptional.get().getId();
         viewsService.addView(id,profileId);

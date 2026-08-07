@@ -1,6 +1,7 @@
+import { memo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Image, Dimensions } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useReference } from '../utils/useReference';
 import { connectionAction, type ConnectionState } from '../utils/useConnections';
 import {
@@ -54,7 +55,7 @@ type Props = {
  * button as the primary action, since sending interest is the thing that
  * matters here.
  */
-export default function ProfileFeedCard({
+function ProfileFeedCard({
   profile,
   state = 'NONE',
   shortlisted = false,
@@ -197,6 +198,14 @@ export default function ProfileFeedCard({
     </View>
   );
 }
+
+/**
+ * Memoised because this is a feed row: every shortlist tap, every "load more",
+ * every unread-count poll re-renders the screen holding the list, and without
+ * this each of those re-runs the layout for every card on screen. Depends on
+ * the parent passing stable callbacks - see the useCallback block in home.tsx.
+ */
+export default memo(ProfileFeedCard);
 
 const styles = StyleSheet.create({
   card: {

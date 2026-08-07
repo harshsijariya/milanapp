@@ -9,10 +9,10 @@ import {
   ActivityIndicator,
   RefreshControl,
 } from 'react-native';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useFocusEffect } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { profileAPI, shortlistAPI, notificationAPI } from '../../utils/api';
 import { useGuardedRouter } from '../../utils/useGuardedRouter';
@@ -66,7 +66,8 @@ export default function HomeScreen() {
   };
 
   const loadPage = useCallback(async (next: number, replace = false) => {
-    const res = await profileAPI.getProfiles(next, PAGE_SIZE);
+    // The browse feed is gender-filtered; "See all" on the next screen is not.
+    const res = await profileAPI.getProfiles(next, PAGE_SIZE, true);
     const list = readPage(res);
 
     setProfiles((prev) => (replace ? list : [...prev, ...list]));
@@ -132,11 +133,21 @@ export default function HomeScreen() {
     }
   };
 
-  const openProfile = (id: string | number) => router.push(`/profile-detail/${id}`);
+  const openProfile = useCallback(
+    (id: string | number) => router.push(`/profile-detail/${id}`),
+    [router]
+  );
 
-  const handleShortlist = async (id: string | number) => {
+  // Read through a ref rather than closing over `shortlisted` directly. Naming
+  // the state in the dependency array would give every card a new callback each
+  // time any profile is shortlisted, which is exactly the re-render that
+  // memoising ProfileFeedCard is meant to stop.
+  const shortlistedRef = useRef(shortlisted);
+  shortlistedRef.current = shortlisted;
+
+  const handleShortlist = useCallback(async (id: string | number) => {
     const key = String(id);
-    const isOn = shortlisted.has(key);
+    const isOn = shortlistedRef.current.has(key);
 
     setShortlisted((prev) => {
       const next = new Set(prev);
@@ -157,7 +168,7 @@ export default function HomeScreen() {
       });
       Alert.alert('Error', error.response?.data?.detail || 'Failed to update shortlist');
     }
-  };
+  }, []);
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
