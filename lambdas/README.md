@@ -20,55 +20,65 @@ The kundali function is then actually invoked, because "deployed" and "works"
 are different claims - a layer built for the wrong architecture deploys
 perfectly and fails on first import.
 
+### Who owns what
+
+| | Owns |
+| --- | --- |
+| `terraform/lambdas.tf` | the **shape** - execution role, functions, S3 trigger, log retention, concurrency caps, and the CI user's permissions |
+| `.github/workflows/deploy-lambdas.yml` | the **code** - handler zip and dependency layer, on every merge |
+
+Mixing the two means either Terraform rolling back CI's code on the next
+`apply`, or CI needing permission to rewrite infrastructure. Terraform creates
+each function with a placeholder handler and then stops caring what code is in
+it, via `ignore_changes`.
+
+The workflow **cannot create or delete functions** - it fails with a clear
+message if one is missing. A CI key that can delete a production Lambda is a
+worse problem than a manual `terraform apply`.
+
 ### One-time setup
 
-**1. Create the execution role.** The workflow does not create IAM roles on
-purpose: doing so needs permissions far wider than deploying code, and a CI key
-that can mint roles is a much bigger problem than a CI key that can update a
-function. Create it once:
-
-- Trusted entity: AWS service → Lambda
-- Attach `AWSLambdaBasicExecutionRole` (CloudWatch Logs)
-- Add this inline policy so image_compression can read and write photos:
-
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [{
-    "Effect": "Allow",
-    "Action": ["s3:GetObject", "s3:PutObject"],
-    "Resource": "arn:aws:s3:::gahoi-milan-photos/*"
-  }]
-}
+```bash
+cd terraform && terraform init && terraform apply
 ```
 
-**2. Add the role ARN as a GitHub secret** named `LAMBDA_EXECUTION_ROLE_ARN`.
-The workflow fails fast with an explanation if it is missing, rather than
-getting halfway and leaving a published layer with no function attached.
+That creates both functions, the execution role, log groups with a retention
+policy, and extends the existing GitHub Actions IAM user with exactly the
+permissions the workflow needs. No new GitHub secret is required -
+`AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` already exist for the backend
+deploy, and Terraform grants them the extra Lambda permissions.
 
-**3. Check the deploying key can actually deploy.** `AWS_ACCESS_KEY_ID` /
-`AWS_SECRET_ACCESS_KEY` already exist for the backend deploy, but that key was
-provisioned for S3 and SSM. It also needs:
+Function names come from `local.name`, so they are
+`gahoi-milan-prod-image-compression` and `gahoi-milan-prod-kundali`. **If you
+change `project` or `environment`, update the matrix in the workflow to match**
+- it looks functions up by name, and a rename makes the deploy fail rather than
+silently deploy to the wrong place.
 
-```
-lambda:GetFunction, lambda:CreateFunction, lambda:UpdateFunctionCode,
-lambda:UpdateFunctionConfiguration, lambda:PublishLayerVersion,
-lambda:InvokeFunction, iam:PassRole
-```
+Until CI has run, both functions contain a placeholder that raises
+`RuntimeError`. Merging anything under `lambdas/**` replaces it.
 
-`iam:PassRole` is the one people miss - creating a function means handing it the
-execution role, and without that permission `create-function` fails with an
-error that reads like the role is wrong rather than the caller.
+### Turning on the S3 trigger
 
-### What the workflow deliberately does not do
+Off by default, in `enable_photo_compression_trigger`. This is the one resource
+that can cost real money if the handler misbehaves, because the function writes
+into the bucket that triggers it.
 
-- **Create the S3 trigger.** Set it up once by hand, and read the recursion
-  section below first. This function writes back to the bucket that triggers
-  it, and getting that wrong bills you for an infinite loop.
-- **Manage environment variables.** Tuning (`QUALITY`, `MAX_EDGE`, and so on)
-  stays in the console so it can be changed without a deploy.
-- **Delete old layer versions.** Layer versions are immutable and accumulate.
-  Prune occasionally; nothing breaks if you do not.
+1. Let CI deploy the real code
+2. Invoke it by hand on one object and check the result
+3. Confirm no second invocation follows its own write
+4. Set `enable_photo_compression_trigger = true` and apply
+
+`lambda_reserved_concurrency` defaults to 5 as a second safety valve - if the
+guard ever fails, that caps how fast it can run away. Raise it once you have
+watched real uploads go through.
+
+### What is deliberately left manual
+
+- **Environment variables.** Tuning (`QUALITY`, `MAX_EDGE`) stays in the console
+  so it can change without a deploy - which is why `environment` is in the
+  `ignore_changes` list.
+- **Pruning layer versions.** They are immutable and accumulate. Nothing breaks
+  if you never do it.
 
 ---
 

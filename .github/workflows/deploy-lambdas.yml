@@ -30,21 +30,17 @@ jobs:
       # broken kundali build should not stop an image-compression fix reaching
       # production.
       fail-fast: false
+      # Names must match terraform/lambdas.tf, which derives them from
+      # local.name ("<project>-<environment>"). The layer prefix must also stay
+      # inside the IAM scope granted there, or publish-layer-version is denied.
       matrix:
         include:
           - name: image_compression
-            function: gahoi-milan-image-compression
-            layer: gahoi-milan-pillow
-            timeout: 30
-            # 1024 MB is not for headroom. Lambda scales CPU with memory, and
-            # decoding a 12-megapixel JPEG at 512 MB takes long enough that the
-            # extra memory costs less than the extra duration.
-            memory: 1024
+            function: gahoi-milan-prod-image-compression
+            layer: gahoi-milan-prod-pillow
           - name: kundali
-            function: gahoi-milan-kundali
-            layer: gahoi-milan-swisseph
-            timeout: 10
-            memory: 512
+            function: gahoi-milan-prod-kundali
+            layer: gahoi-milan-prod-swisseph
 
     steps:
       - uses: actions/checkout@v4
@@ -59,18 +55,6 @@ jobs:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
-
-      - name: Check the execution role is configured
-        run: |
-          set -euo pipefail
-          if [ -z "${{ secrets.LAMBDA_EXECUTION_ROLE_ARN }}" ]; then
-            echo "::error::Secret LAMBDA_EXECUTION_ROLE_ARN is not set."
-            echo "This workflow deliberately does not create IAM roles - doing so"
-            echo "would need permissions far wider than deploying code. Create the"
-            echo "role once by hand (policy is in lambdas/README.md) and put its"
-            echo "ARN in Settings -> Secrets and variables -> Actions."
-            exit 1
-          fi
 
       - name: Build the dependency layer
         id: layer
@@ -120,47 +104,35 @@ jobs:
           # here as well would double the upload and shadow the layer's copy.
           zip -q function.zip lambda_function.py
 
-      - name: Create or update the function
-        env:
-          ROLE_ARN: ${{ secrets.LAMBDA_EXECUTION_ROLE_ARN }}
+      - name: Deploy the code
         run: |
           set -euo pipefail
           cd "lambdas/${{ matrix.name }}"
           FN="${{ matrix.function }}"
 
-          # get-function is the existence check. `|| true` on a set -e script so
-          # a legitimate "not found" does not abort the job.
-          if aws lambda get-function --function-name "$FN" >/dev/null 2>&1; then
-            echo "Updating $FN"
-
-            aws lambda update-function-code \
-              --function-name "$FN" \
-              --zip-file fileb://function.zip \
-              --publish >/dev/null
-
-            # Code and configuration are separate calls, and the second fails
-            # with ResourceConflictException if the first is still settling.
-            aws lambda wait function-updated --function-name "$FN"
-
-            aws lambda update-function-configuration \
-              --function-name "$FN" \
-              --timeout ${{ matrix.timeout }} \
-              --memory-size ${{ matrix.memory }} \
-              --layers "${{ steps.publish.outputs.arn }}" >/dev/null
-          else
-            echo "Creating $FN"
-
-            aws lambda create-function \
-              --function-name "$FN" \
-              --runtime python3.12 \
-              --architectures arm64 \
-              --handler lambda_function.lambda_handler \
-              --role "$ROLE_ARN" \
-              --timeout ${{ matrix.timeout }} \
-              --memory-size ${{ matrix.memory }} \
-              --layers "${{ steps.publish.outputs.arn }}" \
-              --zip-file fileb://function.zip >/dev/null
+          # Terraform creates the function; this only ever updates it. If the
+          # function is missing, that is a real error worth failing on rather
+          # than papering over by creating one outside Terraform's state.
+          if ! aws lambda get-function --function-name "$FN" >/dev/null 2>&1; then
+            echo "::error::$FN does not exist. Run terraform apply first -"
+            echo "the functions, role and triggers are defined in terraform/lambdas.tf."
+            exit 1
           fi
+
+          aws lambda update-function-code \
+            --function-name "$FN" \
+            --zip-file fileb://function.zip \
+            --publish >/dev/null
+
+          # Code and configuration are separate calls, and the second fails
+          # with ResourceConflictException if the first is still settling.
+          aws lambda wait function-updated --function-name "$FN"
+
+          # Only the layer. Timeout and memory belong to Terraform, and setting
+          # them here would fight the next apply.
+          aws lambda update-function-configuration \
+            --function-name "$FN" \
+            --layers "${{ steps.publish.outputs.arn }}" >/dev/null
 
           aws lambda wait function-updated --function-name "$FN"
 
@@ -194,7 +166,7 @@ jobs:
       - name: Remind about the S3 trigger
         if: matrix.name == 'image_compression'
         run: |
-          echo "::notice::Function deployed. The S3 trigger on ${{ env.PHOTOS_BUCKET }} is NOT"
-          echo "::notice::created by this workflow - see lambdas/README.md. Set a low reserved"
-          echo "::notice::concurrency and watch invocations before trusting the recursion guard:"
-          echo "::notice::this function writes back to the bucket that triggers it."
+          echo "::notice::Code deployed. The S3 trigger is owned by Terraform and is OFF by"
+          echo "::notice::default - set enable_photo_compression_trigger = true in tfvars once"
+          echo "::notice::you have invoked the function by hand and confirmed it does not"
+          echo "::notice::re-trigger itself. It writes into the bucket that triggers it."

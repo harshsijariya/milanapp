@@ -6,6 +6,12 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.60"
     }
+    # Builds the placeholder zip that lets a Lambda be created before CI has
+    # ever deployed real code to it. See lambdas.tf.
+    archive = {
+      source  = "hashicorp/archive"
+      version = "~> 2.4"
+    }
   }
 
   # Uncomment once the bucket exists, so state is shared and locked rather than

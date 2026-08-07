@@ -183,3 +183,41 @@ variable "cors_allowed_origins" {
   type        = string
   default     = "*"
 }
+
+variable "lambda_log_retention_days" {
+  description = <<-EOT
+    How long Lambda logs are kept.
+
+    Set explicitly because a log group Lambda creates for itself never expires,
+    so it bills forever and survives a `terraform destroy`.
+  EOT
+  type        = number
+  default     = 14
+}
+
+variable "lambda_reserved_concurrency" {
+  description = <<-EOT
+    Concurrency cap on each Lambda.
+
+    A safety valve rather than a performance setting. The image compression
+    function writes back to the bucket that triggers it, so if its recursion
+    guard ever fails this caps how fast that runs away. Raise it once you have
+    watched real uploads complete without re-triggering.
+  EOT
+  type        = number
+  default     = 5
+}
+
+variable "enable_photo_compression_trigger" {
+  description = <<-EOT
+    Whether to wire the S3 ObjectCreated notification to the compression
+    Lambda.
+
+    Off by default, deliberately. This is the one resource here that can cost
+    real money if the handler misbehaves - it writes into the bucket that
+    triggers it. Deploy the function, invoke it by hand on one object, confirm
+    it does not re-trigger, then set this true.
+  EOT
+  type        = bool
+  default     = false
+}
