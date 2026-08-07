@@ -1,11 +1,12 @@
-import { View, Text, TextInput, StyleSheet, TouchableOpacity, Platform, Alert, InteractionManager } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Platform, Alert, InteractionManager } from 'react-native';
 import FormScroll from '../components/FormScroll';
+import FormField from '../components/FormField';
 import { colors } from '../components/theme';
 
 import { useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { authAPI } from '../utils/api';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useGuardedRouter } from '../utils/useGuardedRouter';
 import { isGoogleConfigured, signInWithGoogle } from '../utils/googleSignIn';
 
@@ -17,8 +18,6 @@ export default function RegisterScreen() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const onGooglePress = async () => {
     if (!isGoogleConfigured) {
@@ -135,90 +134,60 @@ export default function RegisterScreen() {
         </View>
 
         <View style={styles.formContainer}>
-          <View style={styles.inputContainer}>
-            <Ionicons name="person-outline" size={20} color="#8E8E8E" style={styles.inputIcon} />
-            <TextInput
-              testID="register-name-input"
-              style={styles.input}
-              placeholder="Full Name"
-              placeholderTextColor="#8E8E8E"
-              value={name}
-              onChangeText={setName}
-            />
-          </View>
+          <FormField
+            testID="register-name-input"
+            icon="person-outline"
+            placeholder="Full Name"
+            value={name}
+            onChangeText={setName}
+            autoComplete="name"
+            textContentType="name"
+          />
 
-          <View style={styles.inputContainer}>
-            <Ionicons name="mail-outline" size={20} color="#8E8E8E" style={styles.inputIcon} />
-            <TextInput
-              testID="register-email-input"
-              style={styles.input}
-              placeholder="Email Address"
-              placeholderTextColor="#8E8E8E"
-              value={email}
-              onChangeText={setEmail}
-              keyboardType="email-address"
-              autoCapitalize="none"
-            />
-          </View>
+          <FormField
+            testID="register-email-input"
+            icon="mail-outline"
+            placeholder="Email Address"
+            value={email}
+            onChangeText={setEmail}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoComplete="email"
+            textContentType="emailAddress"
+          />
 
-          <View style={styles.inputContainer}>
-            <Ionicons name="call-outline" size={20} color="#8E8E8E" style={styles.inputIcon} />
-            <TextInput
-              testID="register-mobile-input"
-              style={styles.input}
-              placeholder="Mobile Number"
-              placeholderTextColor="#8E8E8E"
-              value={mobileNumber}
-              onChangeText={setMobileNumber}
-              keyboardType="phone-pad"
-            />
-          </View>
+          <FormField
+            testID="register-mobile-input"
+            icon="call-outline"
+            placeholder="Mobile Number"
+            value={mobileNumber}
+            onChangeText={setMobileNumber}
+            keyboardType="phone-pad"
+            autoComplete="tel"
+            textContentType="telephoneNumber"
+          />
 
-          <View style={styles.inputContainer}>
-            <Ionicons name="lock-closed-outline" size={20} color="#8E8E8E" style={styles.inputIcon} />
-            <TextInput
-              testID="register-password-input"
-              style={styles.input}
-              placeholder="Password"
-              placeholderTextColor="#8E8E8E"
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry={!showPassword}
-            />
-            <TouchableOpacity
-              style={styles.eyeIcon}
-              onPress={() => setShowPassword(!showPassword)}
-            >
-              <Ionicons
-                name={showPassword ? 'eye-off' : 'eye'}
-                size={20}
-                color="#8E8E8E"
-              />
-            </TouchableOpacity>
-          </View>
+          <FormField
+            testID="register-password-input"
+            icon="lock-closed-outline"
+            placeholder="Password"
+            value={password}
+            onChangeText={setPassword}
+            secure
+            autoComplete="new-password"
+            textContentType="newPassword"
+          />
 
-          <View style={styles.inputContainer}>
-            <Ionicons name="shield-checkmark-outline" size={20} color="#8E8E8E" style={styles.inputIcon} />
-            <TextInput
-              testID="register-confirm-password-input"
-              style={styles.input}
-              placeholder="Confirm Password"
-              placeholderTextColor="#8E8E8E"
-              value={confirmPassword}
-              onChangeText={setConfirmPassword}
-              secureTextEntry={!showConfirmPassword}
-            />
-            <TouchableOpacity
-              style={styles.eyeIcon}
-              onPress={() => setShowConfirmPassword(!showConfirmPassword)}
-            >
-              <Ionicons
-                name={showConfirmPassword ? 'eye-off' : 'eye'}
-                size={20}
-                color="#8E8E8E"
-              />
-            </TouchableOpacity>
-          </View>
+          <FormField
+            testID="register-confirm-password-input"
+            icon="shield-checkmark-outline"
+            placeholder="Confirm Password"
+            value={confirmPassword}
+            onChangeText={setConfirmPassword}
+            secure
+            autoComplete="new-password"
+            textContentType="newPassword"
+          />
 
           {/* Primary button - same pink used for the primary action button on Complete Your Profile */}
           <TouchableOpacity
@@ -313,27 +282,6 @@ const styles = StyleSheet.create({
   },
   formContainer: {
     gap: 12,
-  },
-  inputContainer: {
-    backgroundColor: '#FAFAFA',
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#DBDBDB',
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 14,
-  },
-  inputIcon: {
-    marginRight: 10,
-  },
-  input: {
-    flex: 1,
-    paddingVertical: 14,
-    fontSize: 15,
-    color: '#262626',
-  },
-  eyeIcon: {
-    padding: 8,
   },
   registerButton: {
     backgroundColor: colors.brand,
