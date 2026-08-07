@@ -3,13 +3,13 @@ import {
   Text,
   StyleSheet,
   Modal,
-  ScrollView,
   TouchableOpacity,
   ActivityIndicator,
 } from 'react-native';
 import type { ReactNode } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import FormScroll from './FormScroll';
 import { colors, font, radius, spacing } from './theme';
 
 type Props = {
@@ -55,17 +55,12 @@ export default function EditSheet({
           </TouchableOpacity>
         </View>
 
-        <ScrollView
-          style={styles.scroll}
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-        >
+        <FormScroll style={styles.scroll} contentContainerStyle={styles.scrollContent}>
           <Text style={styles.title}>{title}</Text>
           {!!subtitle && <Text style={styles.subtitle}>{subtitle}</Text>}
 
           <View style={styles.fields}>{children}</View>
-        </ScrollView>
+        </FormScroll>
 
         <View style={[styles.footer, { paddingBottom: insets.bottom + spacing.md }]}>
           <TouchableOpacity

@@ -6,15 +6,14 @@ import {
   TouchableOpacity,
   Platform,
   Alert,
-  ScrollView,
-  KeyboardAvoidingView,
   InteractionManager,
 } from "react-native";
+import FormScroll from "../components/FormScroll";
+import { colors } from "../components/theme";
 
 import { useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { authAPI } from "../utils/api";
-import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useGuardedRouter } from "../utils/useGuardedRouter";
 import { isGoogleConfigured, signInWithGoogle } from "../utils/googleSignIn";
@@ -104,15 +103,9 @@ export default function LoginScreen() {
 
   return (
     <View style={styles.container}>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
-        <ScrollView
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-        >
+        {/* FormScroll rather than KeyboardAvoidingView - see FormScroll for why
+            the old version did nothing on Android. */}
+        <FormScroll contentContainerStyle={styles.scrollContent}>
           <TouchableOpacity
             testID="login-back-btn"
             style={styles.backButton}
@@ -122,12 +115,12 @@ export default function LoginScreen() {
           </TouchableOpacity>
 
           <View style={styles.header}>
-            <LinearGradient
-              colors={["#EC4899", "#F43F5E"]}
-              style={styles.logoSquare}
-            >
-              <Ionicons name="heart" size={36} color="#FFFFFF" />
-            </LinearGradient>
+            {/* Solid brand fill, matching the button below and the landing
+                screen's background - the gradient made the logo a third shade
+                on a screen that only needs one. */}
+            <View style={styles.logoSquare}>
+              <Ionicons name="heart" size={36} color={colors.white} />
+            </View>
             <Text style={styles.title}>Welcome Back</Text>
             <Text style={styles.subtitle}>Login to continue your journey</Text>
           </View>
@@ -191,16 +184,14 @@ export default function LoginScreen() {
               disabled={loading}
               activeOpacity={0.85}
             >
-              <LinearGradient
-                colors={["#EC4899", "#F43F5E"]}
-                style={[styles.loginButton, loading && styles.buttonDisabled]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-              >
+              {/* Flat brand fill rather than a gradient: the landing screen
+                  this button is reached from is a solid #F43F5E, and a
+                  pink-to-rose sweep beside it read as a different product. */}
+              <View style={[styles.loginButton, loading && styles.buttonDisabled]}>
                 <Text style={styles.loginButtonText}>
                   {loading ? "Logging in..." : "Log in"}
                 </Text>
-              </LinearGradient>
+              </View>
             </TouchableOpacity>
 
             <View style={styles.dividerContainer}>
@@ -236,8 +227,7 @@ export default function LoginScreen() {
             <Ionicons name="heart" size={14} color="#DBDBDB" />
             <Text style={styles.footerBrandText}>Gahoi Milan</Text>
           </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
+        </FormScroll>
     </View>
   );
 }
@@ -260,13 +250,14 @@ const styles = StyleSheet.create({
     marginBottom: 28,
   },
   logoSquare: {
+    backgroundColor: colors.brand,
     width: 80,
     height: 80,
     borderRadius: 20,
     justifyContent: "center",
     alignItems: "center",
     marginBottom: 18,
-    shadowColor: "#EC4899",
+    shadowColor: colors.brand,
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.25,
     shadowRadius: 16,
@@ -313,6 +304,7 @@ const styles = StyleSheet.create({
     textAlign: "right",
   },
   loginButton: {
+    backgroundColor: colors.brand,
     paddingVertical: 15,
     borderRadius: 24,
     alignItems: "center",
@@ -320,7 +312,7 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
   loginButtonText: {
-    color: "#FFFFFF",
+    color: colors.white,
     fontSize: 16,
     fontWeight: "bold",
   },

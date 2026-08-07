@@ -17,7 +17,7 @@ import { useGuardedRouter } from '../../utils/useGuardedRouter';
 import { usePhotoUpload } from '../../utils/usePhotoUpload';
 import PhotoCropper from '../../components/PhotoCropper';
 import { unregisterPush } from '../../utils/notifications';
-import { confirmAction } from '../../utils/confirm';
+import ConfirmSheet from '../../components/ConfirmSheet';
 import CompletionRing, { ringLabel } from '../../components/CompletionRing';
 import DetailCard from '../../components/DetailCard';
 import { rowsFor } from '../../components/sectionRows';
@@ -91,14 +91,15 @@ export default function ProfileScreen() {
     onUploaded: loadData,
   });
 
-  const handleLogout = () => {
-    confirmAction('Log out', 'Are you sure you want to log out?', 'Log out', async () => {
-      // Detach this device first, otherwise the next account to sign in here
-      // keeps receiving the previous user's notifications.
-      await unregisterPush();
-      await AsyncStorage.clear();
-      router.replace('/');
-    });
+  const [confirmingLogout, setConfirmingLogout] = useState(false);
+
+  const doLogout = async () => {
+    setConfirmingLogout(false);
+    // Detach this device first, otherwise the next account to sign in here
+    // keeps receiving the previous user's notifications.
+    await unregisterPush();
+    await AsyncStorage.clear();
+    router.replace('/');
   };
 
   const completion = Number(user?.profileCompletion ?? 0);
@@ -219,13 +220,26 @@ rows={rowsFor('family', user, label)}
 rows={rowsFor('contact', user, label)}
         />
 
-        <TouchableOpacity style={styles.logout} onPress={handleLogout} activeOpacity={0.8}>
+        <TouchableOpacity
+          style={styles.logout}
+          onPress={() => setConfirmingLogout(true)}
+          activeOpacity={0.8}
+        >
           <Ionicons name="log-out-outline" size={18} color={colors.danger} />
           <Text style={styles.logoutText}>Log out</Text>
         </TouchableOpacity>
 
         <View style={{ height: 32 }} />
       </View>
+
+      <ConfirmSheet
+        visible={confirmingLogout}
+        title="Are you sure you want to Sign out?"
+        confirmLabel="Yes"
+        cancelLabel="No"
+        onCancel={() => setConfirmingLogout(false)}
+        onConfirm={doLogout}
+      />
 
       <PhotoCropper {...cropperProps} />
     </ScrollView>

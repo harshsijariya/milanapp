@@ -1,23 +1,53 @@
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
 
-import { useEffect } from 'react';
+import { useCallback, useState } from 'react';
+import { useFocusEffect } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { useGuardedRouter } from '../utils/useGuardedRouter';
+import { colors } from '../components/theme';
 
 export default function WelcomeScreen() {
   const router = useGuardedRouter();
+  const [checking, setChecking] = useState(true);
 
-  useEffect(() => {
-    checkAuth();
-  }, []);
+  /**
+   * On focus, not on mount.
+   *
+   * This screen is the root route, so it stays mounted underneath everything
+   * else. A mount-only check meant that anything landing back here - closing
+   * profile setup, or Android recreating the process after the photo picker -
+   * showed Login/Create account to someone who was still signed in. It read as
+   * having been logged out, and tapping "Create new account" then really did
+   * start a second account.
+   */
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
 
-  const checkAuth = async () => {
-    const token = await AsyncStorage.getItem('auth_token');
-    if (token) {
-      router.replace('/(tabs)/home');
-    }
-  };
+      (async () => {
+        const token = await AsyncStorage.getItem('auth_token');
+        if (!active) return;
+
+        if (token) router.replace('/(tabs)/home');
+        else setChecking(false);
+      })();
+
+      return () => {
+        active = false;
+      };
+    }, [router]),
+  );
+
+  // Holding the screen blank until the token is read avoids flashing the
+  // logged-out buttons at a signed-in user for a frame.
+  if (checking) {
+    return (
+      <View style={[styles.container, styles.centered]}>
+        <ActivityIndicator color="#FFFFFF" />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -52,11 +82,15 @@ export default function WelcomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F43F5E',
+    backgroundColor: colors.brand,
     justifyContent: 'space-between',
     padding: 24,
     paddingTop: 100,
     paddingBottom: 48,
+  },
+  centered: {
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   logoSection: {
     flex: 1,

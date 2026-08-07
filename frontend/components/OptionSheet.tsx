@@ -13,6 +13,7 @@ import { useState, useMemo, useEffect } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ChipRow from './ChipRow';
+import { useCoveredHeight } from './FormScroll';
 import { colors, font, radius, spacing } from './theme';
 import type { Option } from '../utils/useReference';
 
@@ -52,6 +53,11 @@ export default function OptionSheet({
   onSave,
 }: Props) {
   const insets = useSafeAreaInsets();
+
+  // Height of the modal's own window, which Android shrinks for the keyboard
+  // while the Activity behind it stays full size.
+  const [viewport, setViewport] = useState(0);
+  const covered = useCoveredHeight(viewport);
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<string[]>([]);
 
@@ -96,10 +102,25 @@ export default function OptionSheet({
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={styles.backdrop}>
+      <View style={styles.backdrop} onLayout={(e) => setViewport(e.nativeEvent.layout.height)}>
         <Pressable style={styles.backdropTouch} onPress={onClose} />
 
-        <View style={[styles.sheet, { paddingBottom: insets.bottom + spacing.md }]}>
+        {/* Two things had to be right here, and each one alone looked broken.
+            `covered` is only the part of the keyboard the OS has not already
+            resized this modal's window for - padding by the full keyboard
+            height threw the sheet into the middle of the screen. And the cap
+            has to follow the measured viewport, not the full window: 78% of an
+            un-shrunk screen is taller than what is actually visible, which is
+            what pushed the results out of sight in the first place. */}
+        <View
+          style={[
+            styles.sheet,
+            {
+              paddingBottom: covered + insets.bottom + spacing.md,
+              maxHeight: (viewport || height) * 0.85,
+            },
+          ]}
+        >
           <View style={styles.grabber} />
           <Text style={styles.title}>{title}</Text>
 
@@ -187,6 +208,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 22,
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.sm,
+    /* Overridden inline while the keyboard is open. */
     maxHeight: height * 0.78,
     gap: spacing.md,
   },
@@ -220,7 +242,11 @@ const styles = StyleSheet.create({
     padding: 0,
   },
   list: {
+    // Never grow past its content, but give up space when the sheet is capped -
+    // without flexShrink the list keeps its full height and pushes Done off the
+    // bottom the moment the keyboard shortens the sheet.
     flexGrow: 0,
+    flexShrink: 1,
   },
   row: {
     flexDirection: 'row',

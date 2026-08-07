@@ -1,9 +1,10 @@
-import { View, Text, TextInput, StyleSheet, TouchableOpacity, Platform, Alert, ScrollView, KeyboardAvoidingView, InteractionManager } from 'react-native';
+import { View, Text, TextInput, StyleSheet, TouchableOpacity, Platform, Alert, InteractionManager } from 'react-native';
+import FormScroll from '../components/FormScroll';
+import { colors } from '../components/theme';
 
 import { useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { authAPI } from '../utils/api';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useGuardedRouter } from '../utils/useGuardedRouter';
 import { isGoogleConfigured, signInWithGoogle } from '../utils/googleSignIn';
@@ -47,7 +48,7 @@ export default function RegisterScreen() {
       setLoading(false);
       InteractionManager.runAfterInteractions(() => {
         // New Google accounts land on profile setup to fill in the rest.
-        router.replace('/profile-setup');
+        router.replace('/profile-setup?first=1');
       });
       return;
     } catch (error: any) {
@@ -96,7 +97,7 @@ export default function RegisterScreen() {
       await AsyncStorage.setItem('user_data', JSON.stringify(user));
       await AsyncStorage.setItem('temp_mobile', mobileNumber);
 
-      router.replace('/profile-setup');
+      router.replace('/profile-setup?first=1');
     } catch (error: any) {
       console.error('Caught error in handleRegister:', error);
       if (error.response?.status === 409) {
@@ -112,15 +113,10 @@ export default function RegisterScreen() {
 
   return (
     <View style={styles.container}>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-      >
+      {/* FormScroll, not KeyboardAvoidingView: behavior was `undefined` on
+          Android, so it did nothing at all - which is why the confirm-password
+          field sat under the keyboard. */}
+      <FormScroll contentContainerStyle={styles.scrollContent}>
         <TouchableOpacity
           testID="register-back-btn"
           style={styles.backButton}
@@ -130,12 +126,10 @@ export default function RegisterScreen() {
         </TouchableOpacity>
 
         <View style={styles.header}>
-          <LinearGradient
-            colors={['#EC4899', '#F43F5E']}
-            style={styles.logoSquare}
-          >
-            <Ionicons name="people" size={36} color="#FFFFFF" />
-          </LinearGradient>
+          {/* Solid brand fill - see login.tsx. */}
+          <View style={styles.logoSquare}>
+            <Ionicons name="people" size={36} color={colors.white} />
+          </View>
           <Text style={styles.title}>Create Account</Text>
           <Text style={styles.subtitle}>Join us to find your perfect match</Text>
         </View>
@@ -233,14 +227,11 @@ export default function RegisterScreen() {
             disabled={loading}
             activeOpacity={0.85}
           >
-            <LinearGradient
-              colors={['#EC4899', '#F43F5E']}
-              style={[styles.registerButton, loading && styles.buttonDisabled]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-            >
+            {/* Flat brand fill, matching the landing screen and the Log in
+                button - see login.tsx for why the gradient went. */}
+            <View style={[styles.registerButton, loading && styles.buttonDisabled]}>
               <Text style={styles.registerButtonText}>{loading ? 'Creating Account...' : 'Sign up'}</Text>
-            </LinearGradient>
+            </View>
           </TouchableOpacity>
 
           <View style={styles.dividerContainer}>
@@ -274,8 +265,7 @@ export default function RegisterScreen() {
           <Ionicons name="heart" size={14} color="#DBDBDB" />
           <Text style={styles.footerBrandText}>Gahoi Milan</Text>
         </View>
-      </ScrollView>
-      </KeyboardAvoidingView>
+      </FormScroll>
     </View>
   );
 }
@@ -298,13 +288,14 @@ const styles = StyleSheet.create({
     marginBottom: 28,
   },
   logoSquare: {
+    backgroundColor: colors.brand,
     width: 80,
     height: 80,
     borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 18,
-    shadowColor: '#EC4899',
+    shadowColor: colors.brand,
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.25,
     shadowRadius: 16,
@@ -345,6 +336,7 @@ const styles = StyleSheet.create({
     padding: 8,
   },
   registerButton: {
+    backgroundColor: colors.brand,
     paddingVertical: 15,
     borderRadius: 24,
     alignItems: 'center',
@@ -352,7 +344,7 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
   registerButtonText: {
-    color: '#FFFFFF',
+    color: colors.white,
     fontSize: 16,
     fontWeight: 'bold',
   },
