@@ -98,6 +98,32 @@ public class UserProfile implements UserDetails {
     @Column(name = "status", nullable = false)
     private Status status;
 
+    /**
+     * The member has hidden their own profile from listings.
+     *
+     * Separate from {@link #status}, which is moderation state. Folding "hidden"
+     * into that enum would make it indistinguishable from "not yet approved",
+     * so unhiding would have to guess which approval state to restore.
+     *
+     * Reversible and entirely the member's choice: the account, photos and
+     * connections all stay intact while hidden.
+     */
+    @Column(name = "hidden", nullable = false)
+    private Boolean hidden = false;
+
+    /**
+     * Soft delete. Null means live.
+     *
+     * A timestamp rather than a flag because "when" is what a grace period, a
+     * support question, and a later purge job all need.
+     *
+     * The row survives because likes, shortlists, views and notifications all
+     * reference this id - a hard delete would either fail on the foreign keys
+     * or cascade away other members' history.
+     */
+    @Column(name = "deleted_at")
+    private LocalDateTime deletedAt;
+
 
 
     @Override
