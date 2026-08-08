@@ -183,6 +183,27 @@ resource "aws_s3_bucket_notification" "photos" {
   depends_on = [aws_lambda_permission.photos_invoke]
 }
 
+# --- API permissions -------------------------------------------------------
+#
+# The app server generates birth charts by invoking the kundali function. It is
+# not given invoke on image_compression: that one is driven by S3 and the API
+# has no reason to call it, so leaving it out means a compromised API cannot
+# drive arbitrary writes into the photo bucket through it.
+
+resource "aws_iam_role_policy" "app_invoke_kundali" {
+  name = "${local.name}-invoke-kundali"
+  role = aws_iam_role.app.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["lambda:InvokeFunction"]
+      Resource = aws_lambda_function.this["kundali"].arn
+    }]
+  })
+}
+
 # --- CI permissions --------------------------------------------------------
 #
 # Extends the GitHub Actions user so deploy-lambdas.yml can do its job, and no
