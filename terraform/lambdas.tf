@@ -124,10 +124,14 @@ resource "aws_lambda_function" "this" {
   filename         = data.archive_file.lambda_placeholder.output_path
   source_code_hash = data.archive_file.lambda_placeholder.output_base64sha256
 
-  # A safety valve, not a performance setting. image_compression writes back to
-  # the bucket that triggers it: if the recursion guard in the handler ever
-  # fails, this caps how fast that can run away. Raise it once you have watched
-  # a real upload go through without re-triggering.
+  # A safety valve, not a performance setting: image_compression writes back to
+  # the bucket that triggers it, so a cap limits how fast a failed recursion
+  # guard could run away.
+  #
+  # Defaults to -1 (no reservation) because this account's total Lambda
+  # concurrency is 10 and AWS rejects any reservation leaving fewer than 10
+  # unreserved. The account limit is doing the same job in the meantime - a
+  # runaway can reach 10 executions and no further. See the variable.
   reserved_concurrent_executions = var.lambda_reserved_concurrency
 
   lifecycle {
