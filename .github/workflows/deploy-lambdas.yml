@@ -145,7 +145,7 @@ jobs:
                 echo "::error::$FN does not exist. Run terraform apply first -"
                 echo "the functions, role and triggers are defined in terraform/lambdas.tf."
                 ;;
-              *AccessDenied*|*not authorized*)
+              *AccessDenied*|*"not authorized"*)
                 echo "::error::Not permitted to read $FN. Either terraform apply has not"
                 echo "run since this function was added, or the IAM change has not"
                 echo "propagated yet - it can lag a minute. Re-running usually fixes it."
