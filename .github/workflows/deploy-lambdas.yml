@@ -133,9 +133,27 @@ jobs:
           # Terraform creates the function; this only ever updates it. If the
           # function is missing, that is a real error worth failing on rather
           # than papering over by creating one outside Terraform's state.
-          if ! aws lambda get-function --function-name "$FN" >/dev/null 2>&1; then
-            echo "::error::$FN does not exist. Run terraform apply first -"
-            echo "the functions, role and triggers are defined in terraform/lambdas.tf."
+          #
+          # stderr is kept and inspected rather than discarded, because
+          # AccessDenied and ResourceNotFound are indistinguishable once you
+          # throw it away - and they need opposite fixes. An earlier version
+          # swallowed both and told the reader to run `terraform apply` when
+          # the real problem was that the IAM policy had not propagated yet.
+          if ! ERR=$(aws lambda get-function --function-name "$FN" 2>&1 >/dev/null); then
+            case "$ERR" in
+              *ResourceNotFoundException*|*"Function not found"*)
+                echo "::error::$FN does not exist. Run terraform apply first -"
+                echo "the functions, role and triggers are defined in terraform/lambdas.tf."
+                ;;
+              *AccessDenied*|*not authorized*)
+                echo "::error::Not permitted to read $FN. Either terraform apply has not"
+                echo "run since this function was added, or the IAM change has not"
+                echo "propagated yet - it can lag a minute. Re-running usually fixes it."
+                ;;
+              *)
+                echo "::error::Could not read $FN: $ERR"
+                ;;
+            esac
             exit 1
           fi
 
