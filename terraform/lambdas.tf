@@ -124,10 +124,14 @@ resource "aws_lambda_function" "this" {
   filename         = data.archive_file.lambda_placeholder.output_path
   source_code_hash = data.archive_file.lambda_placeholder.output_base64sha256
 
-  # A safety valve, not a performance setting. image_compression writes back to
-  # the bucket that triggers it: if the recursion guard in the handler ever
-  # fails, this caps how fast that can run away. Raise it once you have watched
-  # a real upload go through without re-triggering.
+  # A safety valve, not a performance setting: image_compression writes back to
+  # the bucket that triggers it, so a cap limits how fast a failed recursion
+  # guard could run away.
+  #
+  # Defaults to -1 (no reservation) because this account's total Lambda
+  # concurrency is 10 and AWS rejects any reservation leaving fewer than 10
+  # unreserved. The account limit is doing the same job in the meantime - a
+  # runaway can reach 10 executions and no further. See the variable.
   reserved_concurrent_executions = var.lambda_reserved_concurrency
 
   lifecycle {
@@ -177,6 +181,27 @@ resource "aws_s3_bucket_notification" "photos" {
   }
 
   depends_on = [aws_lambda_permission.photos_invoke]
+}
+
+# --- API permissions -------------------------------------------------------
+#
+# The app server generates birth charts by invoking the kundali function. It is
+# not given invoke on image_compression: that one is driven by S3 and the API
+# has no reason to call it, so leaving it out means a compromised API cannot
+# drive arbitrary writes into the photo bucket through it.
+
+resource "aws_iam_role_policy" "app_invoke_kundali" {
+  name = "${local.name}-invoke-kundali"
+  role = aws_iam_role.app.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["lambda:InvokeFunction"]
+      Resource = aws_lambda_function.this["kundali"].arn
+    }]
+  })
 }
 
 # --- CI permissions --------------------------------------------------------

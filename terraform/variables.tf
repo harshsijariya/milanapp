@@ -197,15 +197,24 @@ variable "lambda_log_retention_days" {
 
 variable "lambda_reserved_concurrency" {
   description = <<-EOT
-    Concurrency cap on each Lambda.
+    Concurrency cap on each Lambda. -1 means no reservation.
 
-    A safety valve rather than a performance setting. The image compression
-    function writes back to the bucket that triggers it, so if its recursion
-    guard ever fails this caps how fast that runs away. Raise it once you have
-    watched real uploads complete without re-triggering.
+    Intended as a safety valve rather than a performance setting: the image
+    compression function writes back to the bucket that triggers it, so a cap
+    limits how fast a failed recursion guard could run away.
+
+    Defaults to -1 because this account's total Lambda concurrency is 10, and
+    AWS refuses any reservation that would leave fewer than 10 unreserved -
+    so reserving even 1 is rejected outright.
+
+    That is less alarming than it sounds. The account limit is itself the cap:
+    a runaway loop can reach 10 concurrent executions and no further. Once you
+    raise the account limit (Service Quotas -> Lambda -> Concurrent
+    executions), set this to something small and the per-function valve comes
+    back.
   EOT
   type        = number
-  default     = 5
+  default     = -1
 }
 
 variable "enable_photo_compression_trigger" {

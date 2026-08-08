@@ -16,13 +16,11 @@ load the database, point DNS, get a certificate, deploy, build the APK.
 
 ## 1. Put the secrets in
 
-```bash
-cd terraform
-./put-secrets.sh
-```
+Set them as GitHub repository secrets, under
+Settings -> Secrets and variables -> Actions. The deploy workflow assembles
+`/etc/gahoi-milan/gahoi-milan.env` from them on every deploy.
 
-It reads the generated JWT and admin secrets from `~/.gahoi-milan-secrets.txt`
-and prompts for the rest. Have ready:
+Have ready:
 
 - **Gmail address** and an **App Password** from
   [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords)

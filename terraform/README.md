@@ -40,45 +40,25 @@ together.
 
 ## Secrets
 
-Every production value lives in one AWS Secrets Manager secret,
-`gahoi-milan/prod`, as flat JSON. Nothing sensitive is on the server's disk.
+Production values live in `/etc/gahoi-milan/gahoi-milan.env` on the instance.
+The deploy workflow assembles that file from GitHub repository secrets and
+ships it base64-encoded, so nothing sensitive is in this repo or in Terraform.
 
-**How the app reads it.** `SecretsManagerEnvironmentPostProcessor` runs before
-the Spring context exists and adds the secret's keys as properties, so every
-`${PLACEHOLDER}` in `application-prod.properties` resolves. It runs only when
-the **prod** profile is active - locally, `application.properties` is used
-exactly as before and no AWS call is made.
+systemd loads it via `EnvironmentFile`, and `application-prod.properties`
+interpolates the same names, so `${DB_PASSWORD}` resolves from the environment.
 
-Credentials come from the EC2 instance role, so there is no key to store.
+**AWS Secrets Manager was removed.** It was never actually in use: the Spring
+`EnvironmentPostProcessor` written to read it was never registered - its
+`.imports` file was empty - so the class shipped in every jar and never ran.
+The secret sat unread, was deleted on 3 August, and the API kept restarting
+without noticing. Keeping dead infrastructure that costs $0.40/month and blocks
+`terraform apply` bought nothing.
 
-**Precedence, deliberately:** an environment variable in
-`/etc/gahoi-milan/gahoi-milan.env` beats the secret. That is the escape hatch
-for overriding one value during an incident without editing the secret and
-waiting. Remove the override afterwards - a stale one is invisible from the
-console.
-
-**Failure is fatal.** If the secret cannot be read, the app refuses to start
-and says why. A process running with a missing database password serves 500s,
-which is harder to diagnose than a service that will not start.
-
-Filling it in:
-
-```bash
-./put-secrets.sh
-```
-
-Reads the generated JWT and admin secrets from `~/.gahoi-milan-secrets.txt`,
-prompts for the mail and Google values, shows key names and lengths - never
-values - and asks before writing. Re-run any time; blank answers leave existing
-keys untouched.
-
-To change one value later, edit it in the console and restart the app. The
-`secret_string` is under `ignore_changes`, so `terraform apply` will not revert
-a hand edit - Terraform creates the secret, it does not maintain it.
-
-**Cost: $0.40/month.** One secret rather than eight is deliberate; eight would
-be $3.20 for no benefit. SSM Parameter Store would be free, but Secrets Manager
-buys rotation and versioned rollback for 40 cents.
+If you want it back, the missing piece was one line in
+`META-INF/spring/org.springframework.boot.env.EnvironmentPostProcessor.imports`
+naming the class - and note the processor throws on failure, so the secret has
+to exist and the instance role has to be able to read it before that line goes
+in.
 
 ## Deploy
 
