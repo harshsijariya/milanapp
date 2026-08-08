@@ -14,6 +14,7 @@ import FieldRow from './FieldRow';
 import ChipRow from './ChipRow';
 import OptionSheet from './OptionSheet';
 import { useReference, useLocations, type Option } from '../utils/useReference';
+import { referenceAPI } from '../utils/api';
 import { toDbTime, parseDbTime, formatTime } from '../utils/timeOfBirth';
 import type { FieldSpec, SectionSpec } from './sectionSchema';
 import { colors, font, radius, spacing } from './theme';
@@ -65,6 +66,25 @@ export default function SectionForm({ spec, values, onChange }: Props) {
   const { list } = useReference();
   const { states, cities, loadCities } = useLocations();
   const [picker, setPicker] = useState<FieldSpec | null>(null);
+
+  /**
+   * Birth place searches the server rather than a list held on the device.
+   *
+   * There are over a thousand cities. Shipping them all so the app can filter
+   * locally means a slow first render and a payload that goes stale; the API
+   * ranks prefix matches first and caps the result, which is what a type-ahead
+   * actually needs.
+   *
+   * The state is shown alongside the name because city names repeat - there is
+   * a Hyderabad in Telangana and one in Sindh, and several Rampurs.
+   */
+  const searchCities = useCallback(async (query: string): Promise<Option[]> => {
+    const res = await referenceAPI.cities({ search: query });
+    return (res.data ?? []).map((c: any) => ({
+      code: c.name,
+      label: c.state ? `${c.name}, ${c.state}` : c.name,
+    }));
+  }, []);
   const [datePicker, setDatePicker] = useState<FieldSpec | null>(null);
   const [timePicker, setTimePicker] = useState<FieldSpec | null>(null);
 
@@ -196,6 +216,7 @@ export default function SectionForm({ spec, values, onChange }: Props) {
         options={picker ? optionsFor(picker) : []}
         value={picker ? values[picker.key] : null}
         multi={picker?.kind === 'multiselect'}
+        onSearch={picker?.remote === 'city' ? searchCities : undefined}
         onClose={() => setPicker(null)}
         onSave={(v) => picker && onChange(picker.key, v)}
       />

@@ -30,6 +30,8 @@ export type FieldSpec = {
   placeholder?: string;
   /** Show the first N options as tappable chips under the field. */
   suggest?: number;
+  /** Options come from the server as the user types. See OptionSheet.onSearch. */
+  remote?: 'city';
   keyboard?: 'default' | 'numeric' | 'phone-pad';
 };
 
@@ -120,7 +122,10 @@ export const SECTIONS: Record<string, SectionSpec> = {
       { key: 'nakshatra', label: 'Nakshatra', kind: 'select', lookup: 'nakshatra' },
       { key: 'manglik', label: 'Manglik', kind: 'chips', lookup: 'manglik' },
       { key: 'timeOfBirth', label: 'Time of birth', kind: 'time', placeholder: 'Select time' },
-      { key: 'placeOfBirth', label: 'Place of birth', kind: 'text' },
+      // A city from the list, not free text. Free text is how this column came
+      // to hold "Nihal" and "Hdhdjd", and a kundali cannot be calculated from
+      // those - the chart needs real coordinates, which only a known city has.
+      { key: 'placeOfBirth', label: 'Place of birth', kind: 'select', remote: 'city' },
     ],
   },
 

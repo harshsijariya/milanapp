@@ -274,6 +274,18 @@ export const profileAPI = {
    */
   generateKundali: () => api.post("/user/kundali", undefined, { timeout: 30000 }),
 
+  /** Your stored chart, generated on first ask and cached after that. */
+  getKundali: () => api.get("/user/kundali", { timeout: 30000 }),
+
+  /**
+   * Ashtakoota score against another member, with both charts.
+   *
+   * One call rather than two: the screen wants the score and their chart at
+   * the same moment, and either may need generating first.
+   */
+  matchKundali: (id: string | number) =>
+    api.get(`/user/kundali/match/${id}`, { timeout: 40000 }),
+
   // Split GET Endpoints
   getBasicInfo: () => api.get("/user/profile/basic"),
   getContactInfo: () => api.get("/user/profile/contact"),
