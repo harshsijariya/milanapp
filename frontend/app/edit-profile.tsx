@@ -2,7 +2,6 @@ import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
   TouchableOpacity,
   ActivityIndicator,
   Alert,
@@ -14,6 +13,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { profileAPI } from '../utils/api';
 import { useGuardedRouter } from '../utils/useGuardedRouter';
 import SectionForm from '../components/SectionForm';
+import FormScroll, { useKeyboardHeight } from '../components/FormScroll';
 import { SECTIONS, buildPayload } from '../components/sectionSchema';
 import { colors, font, radius, spacing } from '../components/theme';
 
@@ -26,6 +26,8 @@ import { colors, font, radius, spacing } from '../components/theme';
 export default function EditProfileScreen() {
   const router = useGuardedRouter();
   const insets = useSafeAreaInsets();
+  // Drives the footer lift below, so Save stays reachable while typing.
+  const keyboard = useKeyboardHeight();
   const { section } = useLocalSearchParams<{ section?: string }>();
 
   const spec = SECTIONS[section ?? 'basic'] ?? SECTIONS.basic;
@@ -81,10 +83,16 @@ export default function EditProfileScreen() {
         </TouchableOpacity>
       </View>
 
-      <ScrollView
+      {/* FormScroll, not ScrollView. This screen is edge-to-edge, and an
+          edge-to-edge Android window does not resize when the keyboard opens -
+          it keeps its full height and the keyboard simply draws over it. So a
+          plain ScrollView leaves the lower fields underneath the keyboard with
+          no way to reach them. FormScroll measures the keyboard and pads and
+          scrolls for it; every other form screen already used it and this one
+          was missed. */}
+      <FormScroll
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
       >
         <Text style={styles.title}>{spec.title}</Text>
         <Text style={styles.subtitle}>{spec.subtitle}</Text>
@@ -92,9 +100,20 @@ export default function EditProfileScreen() {
         <SectionForm spec={spec} values={values} onChange={set} />
 
         <View style={{ height: spacing.xl }} />
-      </ScrollView>
+      </FormScroll>
 
-      <View style={[styles.footer, { paddingBottom: insets.bottom + spacing.md }]}>
+      {/* Lifted above the keyboard rather than left pinned to the window.
+          Fixing Save to the bottom of an edge-to-edge window puts it behind
+          the keyboard, so saving meant dismissing the keyboard first - and on
+          a long form the field you just filled in is the one that scrolls away
+          when you do. The safe-area inset only applies when the keyboard is
+          closed; while it is open the keyboard already covers that area. */}
+      <View
+        style={[
+          styles.footer,
+          { marginBottom: keyboard, paddingBottom: keyboard > 0 ? spacing.md : insets.bottom + spacing.md },
+        ]}
+      >
         <TouchableOpacity
           style={[styles.save, saving && styles.saveDisabled]}
           activeOpacity={0.85}
