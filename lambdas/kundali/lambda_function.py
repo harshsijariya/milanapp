@@ -219,7 +219,12 @@ def build_chart(payload: dict) -> dict:
         # on user_profile, so the backend can fill them in from one call.
         "moon_sign": moon["rashi"],
         "moon_sign_en": moon["rashi_en"],
+        # Indices as well as names, because matching is arithmetic on these
+        # two numbers and every consumer would otherwise have to map a name
+        # back to a position - three places to get the ordering wrong.
+        "moon_sign_index": moon["sign_index"],
         "nakshatra": moon["nakshatra"],
+        "nakshatra_index": moon["nakshatra_index"],
         "nakshatra_pada": moon["pada"],
         "manglik": mars["house"] in MANGLIK_HOUSES,
         "manglik_rule": "Mars in house 1, 2, 4, 7, 8 or 12 from the ascendant",
@@ -292,6 +297,7 @@ def describe(name: str, label: str, longitude: float, ascendant_sign: int, speed
         "label": label,
         "longitude": round(longitude, 4),
         "sign_index": sign,
+        "nakshatra_index": nakshatra_index,
         "rashi": RASHIS[sign],
         "rashi_en": RASHIS_EN[sign],
         "degree_in_sign": round(longitude % 30, 4),

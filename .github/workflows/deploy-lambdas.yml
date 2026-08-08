@@ -41,6 +41,15 @@ jobs:
             arch: arm64
             platform: manylinux2014_aarch64
             python: '3.12' 
+          - name: kundali_match
+            function: gahoi-milan-prod-kundali-match
+            # No layer: every koota is a table lookup on two integers, so this
+            # one has no dependencies at all.
+            layer: ''
+            arch: arm64
+            platform: manylinux2014_aarch64
+            python: '3.12'
+
           - name: kundali
             function: gahoi-milan-prod-kundali
             layer: gahoi-milan-prod-swisseph
@@ -67,6 +76,7 @@ jobs:
 
       - name: Build the dependency layer
         id: layer
+        if: matrix.layer != ''
         run: |
           set -euo pipefail
           cd "lambdas/${{ matrix.name }}"
@@ -90,6 +100,7 @@ jobs:
 
       - name: Publish the layer
         id: publish
+        if: matrix.layer != ''
         run: |
           set -euo pipefail
           cd "lambdas/${{ matrix.name }}"
@@ -137,13 +148,17 @@ jobs:
           # with ResourceConflictException if the first is still settling.
           aws lambda wait function-updated --function-name "$FN"
 
-          # Only the layer. Timeout and memory belong to Terraform, and setting
-          # them here would fight the next apply.
-          aws lambda update-function-configuration \
-            --function-name "$FN" \
-            --layers "${{ steps.publish.outputs.arn }}" >/dev/null
+          # Only the layer, and only when this function has one. Timeout and
+          # memory belong to Terraform, and setting them here would fight the
+          # next apply. Passing an empty --layers would DETACH the layer, so
+          # the call is skipped rather than made with a blank value.
+          if [ -n "${{ matrix.layer }}" ]; then
+            aws lambda update-function-configuration \
+              --function-name "$FN" \
+              --layers "${{ steps.publish.outputs.arn }}" >/dev/null
 
-          aws lambda wait function-updated --function-name "$FN"
+            aws lambda wait function-updated --function-name "$FN"
+          fi
 
       - name: Smoke test kundali
         if: matrix.name == 'kundali'

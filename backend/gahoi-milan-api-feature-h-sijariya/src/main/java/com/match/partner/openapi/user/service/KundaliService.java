@@ -3,7 +3,9 @@ package com.match.partner.openapi.user.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.match.partner.common.configuration.ClientException;
+import com.match.partner.openapi.user.model.dao.Kundali;
 import com.match.partner.openapi.user.model.dao.UserProfile;
+import com.match.partner.openapi.user.repository.KundaliRepository;
 import com.match.partner.openapi.user.repository.UserProfileRepository;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
@@ -16,9 +18,13 @@ import software.amazon.awssdk.services.lambda.LambdaClient;
 import software.amazon.awssdk.services.lambda.model.InvokeRequest;
 import software.amazon.awssdk.services.lambda.model.InvokeResponse;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Birth chart generation, via the kundali Lambda.
@@ -44,10 +50,14 @@ public class KundaliService {
     private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
     private final UserProfileRepository userProfileRepository;
+    private final KundaliRepository kundaliRepository;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Value("${kundali.function-name:gahoi-milan-prod-kundali}")
     private String functionName;
+
+    @Value("${kundali.match-function-name:gahoi-milan-prod-kundali-match}")
+    private String matchFunctionName;
 
     @Value("${kundali.enabled:true}")
     private boolean enabled;
@@ -60,7 +70,176 @@ public class KundaliService {
      */
     private volatile LambdaClient lambda;
 
-    public JsonNode generateForUser(String userName) {
+    /**
+     * The caller's chart, from storage when it is still valid.
+     *
+     * Regenerates only when there is nothing stored, when the birth details
+     * have changed since it was built, or when the caller explicitly asks.
+     * Everything else is served from the database - a chart costs a Lambda
+     * round trip that cold-starts, and it is deterministic from three fields
+     * that almost never change.
+     *
+     * @param force true when the member pressed Regenerate
+     */
+    public JsonNode getOrGenerate(String userName, boolean force) {
+        UserProfile profile = requireProfileWithBirthDetails(userName);
+        String fingerprint = birthFingerprint(profile);
+
+        if (!force) {
+            Optional<Kundali> stored = kundaliRepository.findById(profile.getId());
+            if (stored.isPresent() && fingerprint.equals(stored.get().getBirthFingerprint())) {
+                try {
+                    return objectMapper.readTree(stored.get().getChart());
+                } catch (Exception e) {
+                    // Unreadable stored chart is not worth failing over - fall
+                    // through and rebuild it.
+                    log.warn("Stored kundali for {} is unreadable, regenerating", profile.getId());
+                }
+            }
+        }
+
+        JsonNode chart = generate(profile);
+        store(profile, chart, fingerprint);
+        return chart;
+    }
+
+    /**
+     * Ashtakoota score between the caller and another member.
+     *
+     * Both charts are fetched through the cache, so a match on a list of
+     * candidates costs one generation per person ever, not one per comparison.
+     */
+    public JsonNode match(String userName, Integer otherProfileId) {
+        UserProfile me = requireProfileWithBirthDetails(userName);
+
+        UserProfile other = userProfileRepository.findById(otherProfileId)
+                .orElseThrow(() -> new ClientException(HttpStatus.NOT_FOUND, "Profile not found"));
+        if (other.getDeletedAt() != null) {
+            throw new ClientException(HttpStatus.NOT_FOUND, "This profile is no longer available");
+        }
+        if (other.getId().equals(me.getId())) {
+            throw new ClientException(HttpStatus.BAD_REQUEST, "You cannot match a profile with itself.");
+        }
+
+        Kundali mine = ensureStored(me);
+        Kundali theirs = ensureStored(other);
+
+        // Boy and girl rather than a and b, because several kootas are counted
+        // from one side to the other - Tara and Bhakoot are not symmetric, so
+        // getting this the wrong way round silently changes the score.
+        Kundali boy = isFemale(me) ? theirs : mine;
+        Kundali girl = isFemale(me) ? mine : theirs;
+
+        String payload;
+        try {
+            payload = objectMapper.writeValueAsString(Map.of(
+                    "boy", Map.of("nakshatra", boy.getNakshatraIndex(), "rashi", boy.getRashiIndex()),
+                    "girl", Map.of("nakshatra", girl.getNakshatraIndex(), "rashi", girl.getRashiIndex())
+            ));
+        } catch (Exception e) {
+            throw new ClientException(HttpStatus.INTERNAL_SERVER_ERROR, "Could not build the request");
+        }
+
+        return invoke(matchFunctionName, payload);
+    }
+
+    /** Whether we can tell this member is female. Unknown counts as not. */
+    private boolean isFemale(UserProfile p) {
+        return p.getGender() != null && p.getGender().trim().equalsIgnoreCase("female");
+    }
+
+    private Kundali ensureStored(UserProfile profile) {
+        String fingerprint = birthFingerprint(profile);
+        Optional<Kundali> stored = kundaliRepository.findById(profile.getId());
+        if (stored.isPresent() && fingerprint.equals(stored.get().getBirthFingerprint())) {
+            return stored.get();
+        }
+        JsonNode chart = generate(profile);
+        return store(profile, chart, fingerprint);
+    }
+
+    /**
+     * Nakshatra and rashi names in their canonical order, so an index can be
+     * recovered when the Lambda does not send one.
+     *
+     * Duplicating the Lambda's lists is not ideal, but the alternative is
+     * worse: JsonNode.asInt() returns 0 for a missing field, so an older
+     * function silently stored Revati as index 0 (Ashwini) and Meen as 0
+     * (Mesh). Matching would then have produced a confident, completely wrong
+     * score - the kind of failure nobody notices because the output still
+     * looks like a number.
+     */
+    private static final List<String> NAKSHATRAS = List.of(
+            "Ashwini", "Bharani", "Krittika", "Rohini", "Mrigashira", "Ardra",
+            "Punarvasu", "Pushya", "Ashlesha", "Magha", "Purva Phalguni", "Uttara Phalguni",
+            "Hasta", "Chitra", "Swati", "Vishakha", "Anuradha", "Jyeshtha",
+            "Mula", "Purva Ashadha", "Uttara Ashadha", "Shravana", "Dhanishta",
+            "Shatabhisha", "Purva Bhadrapada", "Uttara Bhadrapada", "Revati");
+
+    private static final List<String> RASHIS = List.of(
+            "Mesh", "Vrishabh", "Mithun", "Kark", "Simha", "Kanya",
+            "Tula", "Vrishchik", "Dhanu", "Makar", "Kumbh", "Meen");
+
+    /**
+     * The index the Lambda sent, or the position of the name it sent.
+     *
+     * Throws rather than defaulting, because every wrong value here is
+     * invisible downstream - it produces a plausible score from the wrong
+     * inputs.
+     */
+    private int indexOf(JsonNode chart, String indexField, String nameField, List<String> names) {
+        JsonNode index = chart.get(indexField);
+        if (index != null && index.isInt()) {
+            return index.asInt();
+        }
+
+        String name = chart.path(nameField).asText("");
+        int position = names.indexOf(name);
+        if (position >= 0) {
+            log.debug("{} absent from the chart, derived {} from '{}'", indexField, position, name);
+            return position;
+        }
+
+        throw new ClientException(HttpStatus.BAD_GATEWAY,
+                "The chart service returned no " + indexField + " and an unrecognised "
+                        + nameField + " ('" + name + "'). It may need redeploying.");
+    }
+
+    private Kundali store(UserProfile profile, JsonNode chart, String fingerprint) {
+        Kundali row = new Kundali();
+        row.setUserId(profile.getId());
+        row.setChart(chart.toString());
+        row.setNakshatraIndex(indexOf(chart, "nakshatra_index", "nakshatra", NAKSHATRAS));
+        row.setRashiIndex(indexOf(chart, "moon_sign_index", "moon_sign", RASHIS));
+        row.setNakshatra(chart.path("nakshatra").asText(""));
+        row.setRashi(chart.path("moon_sign").asText(""));
+        row.setManglik(chart.path("manglik").asBoolean(false));
+        row.setBirthFingerprint(fingerprint);
+        row.setGeneratedAt(LocalDateTime.now());
+        return kundaliRepository.save(row);
+    }
+
+    /**
+     * Identifies the inputs a chart was built from.
+     *
+     * Any change to date, time or place makes the stored chart wrong, and this
+     * is what makes that detectable without storing the three values again.
+     */
+    private String birthFingerprint(UserProfile p) {
+        String raw = p.getDateOfBirth() + "|" + p.getTimeOfBirth() + "|" + p.getPlaceOfBirth();
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(raw.getBytes(StandardCharsets.UTF_8));
+            StringBuilder hex = new StringBuilder(64);
+            for (byte b : digest) {
+                hex.append(String.format("%02x", b));
+            }
+            return hex.toString();
+        } catch (Exception e) {
+            throw new ClientException(HttpStatus.INTERNAL_SERVER_ERROR, "Could not fingerprint birth details");
+        }
+    }
+
+    private UserProfile requireProfileWithBirthDetails(String userName) {
         if (!enabled) {
             throw new ClientException(HttpStatus.SERVICE_UNAVAILABLE,
                     "Kundali generation is turned off on this server.");
@@ -68,7 +247,10 @@ public class KundaliService {
 
         UserProfile profile = userProfileRepository.findByEmail(userName)
                 .orElseThrow(() -> new ClientException(HttpStatus.NOT_FOUND, "Profile not found"));
+        return requireBirthDetails(profile);
+    }
 
+    private UserProfile requireBirthDetails(UserProfile profile) {
         LocalDateTime dob = profile.getDateOfBirth();
         String tob = profile.getTimeOfBirth();
         String pob = profile.getPlaceOfBirth();
@@ -91,6 +273,13 @@ public class KundaliService {
             throw new ClientException(HttpStatus.BAD_REQUEST,
                     "Add your place of birth to your profile first.");
         }
+        return profile;
+    }
+
+    private JsonNode generate(UserProfile profile) {
+        LocalDateTime dob = profile.getDateOfBirth();
+        String tob = profile.getTimeOfBirth();
+        String pob = profile.getPlaceOfBirth();
 
         String payload;
         try {
@@ -105,14 +294,18 @@ public class KundaliService {
             throw new ClientException(HttpStatus.INTERNAL_SERVER_ERROR, "Could not build the request");
         }
 
+        return invoke(functionName, payload);
+    }
+
+    private JsonNode invoke(String function, String payload) {
         InvokeResponse response;
         try {
             response = client().invoke(InvokeRequest.builder()
-                    .functionName(functionName)
+                    .functionName(function)
                     .payload(SdkBytes.fromUtf8String(payload))
                     .build());
         } catch (Exception e) {
-            log.error("Could not invoke {}: {}", functionName, e.getMessage());
+            log.error("Could not invoke {}: {}", function, e.getMessage());
             throw new ClientException(HttpStatus.BAD_GATEWAY,
                     "Could not reach the chart service. Please try again.");
         }
@@ -122,7 +315,7 @@ public class KundaliService {
         // that ran fine but returned a 4xx puts that in its own statusCode.
         // Both need unpicking or the member sees "success" with no chart.
         if (response.functionError() != null) {
-            log.error("kundali raised: {}", response.payload().asUtf8String());
+            log.error("{} raised: {}", function, response.payload().asUtf8String());
             throw new ClientException(HttpStatus.BAD_GATEWAY,
                     "The chart service failed. Please try again.");
         }
