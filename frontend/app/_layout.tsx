@@ -24,6 +24,7 @@ export default function RootLayout() {
           <Stack.Screen name="account-settings" />
           <Stack.Screen name="help-support" />
           <Stack.Screen name="hide-delete-profile" />
+          <Stack.Screen name="manage-photos" />
         </Stack>
         </WebShell>
       </GestureHandlerRootView>
