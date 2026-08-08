@@ -88,8 +88,7 @@ resource "aws_instance" "app" {
   }
 
   user_data = templatefile("${path.module}/user-data.sh", {
-    region    = var.region
-    secret_id = aws_secretsmanager_secret.app.name
+    region = var.region
   })
 
   # Changing user_data would otherwise replace the running server. Bootstrap

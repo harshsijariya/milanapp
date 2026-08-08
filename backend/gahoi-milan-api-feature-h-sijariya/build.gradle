@@ -55,7 +55,6 @@ dependencies {
 	// Production config comes from Secrets Manager. Pinned to the same SDK
 	// version as s3 above - mixing AWS SDK versions pulls in two copies of the
 	// shared core and fails at runtime with NoSuchMethodError.
-	implementation 'software.amazon.awssdk:secretsmanager:2.20.13'
 	implementation group: 'org.springdoc', name: 'springdoc-openapi-starter-webmvc-ui', version: '2.8.4'
 
 	// Push notifications (FCM). Free at any volume; supports per-device

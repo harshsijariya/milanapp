@@ -71,15 +71,12 @@ systemctl enable codedeploy-agent
 systemctl start codedeploy-agent
 
 # --- Environment file ------------------------------------------------------
-# Almost empty on purpose. Every real value now lives in AWS Secrets Manager
-# and is fetched at startup using the instance role, so there is no password
-# on this disk at all. This file only says WHICH secret to read.
-#
-# Anything set here still wins over the secret, which is the escape hatch for
-# overriding one value in an emergency without editing the secret and waiting.
+# A placeholder, written only if nothing is there yet. The real values arrive
+# with the first deploy: the GitHub Actions workflow assembles this file from
+# repository secrets and ships it base64-encoded, which is why the guard below
+# matters - re-running bootstrap must not clobber a deployed config.
 if [ ! -f /etc/gahoi-milan/gahoi-milan.env ]; then
   cat > /etc/gahoi-milan/gahoi-milan.env <<ENVFILE
-SECRET_ID=${secret_id}
 AWS_REGION=${region}
 SERVER_PORT=8080
 ENVFILE
