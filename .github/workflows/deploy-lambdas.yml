@@ -38,16 +38,25 @@ jobs:
           - name: image_compression
             function: gahoi-milan-prod-image-compression
             layer: gahoi-milan-prod-pillow
+            arch: arm64
+            platform: manylinux2014_aarch64
+            python: '3.12' 
           - name: kundali
             function: gahoi-milan-prod-kundali
             layer: gahoi-milan-prod-swisseph
+            # pyswisseph publishes no aarch64 wheels, and none for 3.12 on any
+            # platform - so this one is x86_64 on 3.11. Must match the
+            # architecture and runtime terraform sets for the function.
+            arch: x86_64
+            platform: manylinux2014_x86_64
+            python: '3.11' 
 
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: ${{ matrix.python }}
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -69,9 +78,9 @@ jobs:
           mkdir -p build/python
           pip install \
             --target build/python \
-            --platform manylinux2014_aarch64 \
+            --platform ${{ matrix.platform }} \
             --implementation cp \
-            --python-version 3.12 \
+            --python-version ${{ matrix.python }} \
             --only-binary=:all: \
             --upgrade \
             -r requirements.txt
@@ -89,8 +98,8 @@ jobs:
             --layer-name "${{ matrix.layer }}" \
             --description "Built from ${{ github.sha }}" \
             --zip-file fileb://layer.zip \
-            --compatible-runtimes python3.12 \
-            --compatible-architectures arm64 \
+            --compatible-runtimes python${{ matrix.python }} \
+            --compatible-architectures ${{ matrix.arch }} \
             --query LayerVersionArn --output text)
 
           echo "arn=$ARN" >> "$GITHUB_OUTPUT"

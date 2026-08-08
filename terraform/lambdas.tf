@@ -18,17 +18,26 @@
 locals {
   lambda_functions = {
     image_compression = {
-      name    = "${local.name}-image-compression"
-      timeout = 30
+      name = "${local.name}-image-compression"
+      # Pillow publishes aarch64 wheels for 3.12, and arm64 is cheaper per ms.
+      architecture = "arm64"
+      runtime      = "python3.12"
+      timeout      = 30
       # Not headroom. Lambda scales CPU with memory, and decoding a
       # 12-megapixel JPEG at 512 MB takes long enough that the extra memory is
       # cheaper than the extra duration.
       memory = 1024
     }
     kundali = {
-      name    = "${local.name}-kundali"
-      timeout = 10
-      memory  = 512
+      name = "${local.name}-kundali"
+      # x86_64 and 3.11, forced by pyswisseph: it publishes no aarch64 wheels
+      # at all, and none for 3.12 on any platform. Building it from source in
+      # CI would need a Lambda-matching container for a C extension - more
+      # machinery than picking the architecture its wheels exist for.
+      architecture = "x86_64"
+      runtime      = "python3.11"
+      timeout      = 10
+      memory       = 512
     }
   }
 }
@@ -113,10 +122,11 @@ resource "aws_lambda_function" "this" {
   function_name = each.value.name
   role          = aws_iam_role.lambda.arn
   handler       = "lambda_function.lambda_handler"
-  runtime       = "python3.12"
-  # Cheaper per millisecond than x86, and both dependency layers have aarch64
-  # wheels. The CI layer build must match this.
-  architectures = ["arm64"]
+  runtime       = each.value.runtime
+  # Per function, because the dependency wheels decide it - see the locals
+  # block. The CI layer build must match, or the layer imports fine locally
+  # and fails inside Lambda.
+  architectures = [each.value.architecture]
 
   timeout     = each.value.timeout
   memory_size = each.value.memory
