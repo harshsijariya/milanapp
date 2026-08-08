@@ -263,6 +263,17 @@ export const profileAPI = {
    */
   deleteAccount: () => api.delete("/user/profile"),
 
+  /**
+   * Generate your birth chart.
+   *
+   * Sends no body on purpose. The server reads date, time and place of birth
+   * from your own profile, so there is nothing here to point at someone else -
+   * and nothing the client can put in that is not already on your record.
+   *
+   * Slower than most calls: it invokes a Lambda, which cold-starts.
+   */
+  generateKundali: () => api.post("/user/kundali", undefined, { timeout: 30000 }),
+
   // Split GET Endpoints
   getBasicInfo: () => api.get("/user/profile/basic"),
   getContactInfo: () => api.get("/user/profile/contact"),

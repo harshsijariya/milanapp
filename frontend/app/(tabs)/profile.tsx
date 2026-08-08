@@ -16,6 +16,7 @@ import { useGuardedRouter } from '../../utils/useGuardedRouter';
 import { usePhotoUpload } from '../../utils/usePhotoUpload';
 import PhotoCropper from '../../components/PhotoCropper';
 import AppDrawer from '../../components/AppDrawer';
+import KundaliCard from '../../components/KundaliCard';
 import CompletionRing, { ringLabel } from '../../components/CompletionRing';
 import DetailCard from '../../components/DetailCard';
 import { rowsFor } from '../../components/sectionRows';
@@ -216,6 +217,13 @@ rows={rowsFor('family', user, label)}
           onEdit={() => openSection('contact')}
 rows={rowsFor('contact', user, label)}
         />
+
+        {/* Below the detail cards, because it is derived from what is in them -
+            specifically the birth date, time and place on the Religion & Astro
+            card. Generated on demand rather than with the rest of the profile:
+            it costs a Lambda round trip that can cold-start, and most visits
+            here are not about the chart. */}
+        <KundaliCard />
 
         {/* Hiding, deleting and logging out all moved to Account & Settings,
             reachable from the menu at the top. They were never part of the

@@ -52,6 +52,10 @@ dependencies {
 	testImplementation 'org.springframework.security:spring-security-test'
 	implementation group: 'com.google.api-client', name: 'google-api-client', version: '2.7.1'
 	implementation 'software.amazon.awssdk:s3:2.20.13'
+	// Invokes the kundali function. The app never calls Lambda directly - its
+	// inputs are exact birth date, time and place, which is about as identifying
+	// as personal data gets, so it stays behind an authenticated endpoint.
+	implementation 'software.amazon.awssdk:lambda:2.20.13'
 	// Production config comes from Secrets Manager. Pinned to the same SDK
 	// version as s3 above - mixing AWS SDK versions pulls in two copies of the
 	// shared core and fails at runtime with NoSuchMethodError.

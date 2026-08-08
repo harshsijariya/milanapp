@@ -10,6 +10,8 @@ import com.match.partner.openapi.user.model.dto.ContactInfoDTO;
 import com.match.partner.openapi.user.model.dto.EducationInfoDTO;
 import com.match.partner.openapi.user.model.dto.FamilyInfoDTO;
 import com.match.partner.openapi.user.model.dto.ReligionInfoDTO;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.match.partner.openapi.user.service.KundaliService;
 import com.match.partner.openapi.user.service.UserProfileServiceInterface;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
@@ -27,6 +29,9 @@ public class UserProfileController {
 
     @Autowired
     private CommonUtils commonUtils;
+
+    @Autowired
+    private KundaliService kundaliService;
 
 
     @GetMapping("/user")
@@ -73,6 +78,19 @@ public class UserProfileController {
 
     /** Body of {@link #setVisibility}. */
     public record VisibilityRequest(boolean hidden) {}
+
+    /**
+     * Generate the caller's own birth chart.
+     *
+     * Takes no body: the birth date, time and place come from the caller's
+     * profile, keyed off the JWT. A member therefore cannot generate a chart
+     * for anyone but themselves, and cannot feed the service values that are
+     * not already on their own record.
+     */
+    @PostMapping("/user/kundali")
+    public JsonNode generateKundali(@RequestAttribute("username") String userName) {
+        return kundaliService.generateForUser(userName);
+    }
 
     @GetMapping("/users/{id}")
     public UserProfileDTO getUserById(@RequestAttribute("username") String userName,
