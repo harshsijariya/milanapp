@@ -1,0 +1,172 @@
+name: Deploy Lambdas
+
+# Only when a Lambda changes. Without the path filter every backend or frontend
+# commit would rebuild both layers and republish functions for nothing - and
+# layer versions are immutable, so each pointless run leaves another one behind.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'lambdas/**'
+      - '.github/workflows/deploy-lambdas.yml'
+  workflow_dispatch:
+
+env:
+  AWS_REGION: ap-south-1
+  PHOTOS_BUCKET: gahoi-milan-photos
+
+# Two runs publishing layer versions and updating the same function at once can
+# leave a function pointing at a layer from the other run.
+concurrency:
+  group: deploy-lambdas
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    strategy:
+      # Deliberately not fail-fast: the two functions are unrelated, and a
+      # broken kundali build should not stop an image-compression fix reaching
+      # production.
+      fail-fast: false
+      # Names must match terraform/lambdas.tf, which derives them from
+      # local.name ("<project>-<environment>"). The layer prefix must also stay
+      # inside the IAM scope granted there, or publish-layer-version is denied.
+      matrix:
+        include:
+          - name: image_compression
+            function: gahoi-milan-prod-image-compression
+            layer: gahoi-milan-prod-pillow
+          - name: kundali
+            function: gahoi-milan-prod-kundali
+            layer: gahoi-milan-prod-swisseph
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Build the dependency layer
+        id: layer
+        run: |
+          set -euo pipefail
+          cd "lambdas/${{ matrix.name }}"
+
+          # Built for manylinux/aarch64 rather than whatever the runner happens
+          # to be. Pillow and pyswisseph both ship compiled wheels, and a layer
+          # built for the wrong platform fails at import time inside Lambda with
+          # an error that says nothing useful about why.
+          mkdir -p build/python
+          pip install \
+            --target build/python \
+            --platform manylinux2014_aarch64 \
+            --implementation cp \
+            --python-version 3.12 \
+            --only-binary=:all: \
+            --upgrade \
+            -r requirements.txt
+
+          cd build && zip -qr ../layer.zip python && cd ..
+          echo "size=$(du -h layer.zip | cut -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Publish the layer
+        id: publish
+        run: |
+          set -euo pipefail
+          cd "lambdas/${{ matrix.name }}"
+
+          ARN=$(aws lambda publish-layer-version \
+            --layer-name "${{ matrix.layer }}" \
+            --description "Built from ${{ github.sha }}" \
+            --zip-file fileb://layer.zip \
+            --compatible-runtimes python3.12 \
+            --compatible-architectures arm64 \
+            --query LayerVersionArn --output text)
+
+          echo "arn=$ARN" >> "$GITHUB_OUTPUT"
+          echo "Published $ARN (${{ steps.layer.outputs.size }})"
+
+      - name: Package the function
+        run: |
+          set -euo pipefail
+          cd "lambdas/${{ matrix.name }}"
+          # Only the handler. Dependencies live in the layer, so shipping them
+          # here as well would double the upload and shadow the layer's copy.
+          zip -q function.zip lambda_function.py
+
+      - name: Deploy the code
+        run: |
+          set -euo pipefail
+          cd "lambdas/${{ matrix.name }}"
+          FN="${{ matrix.function }}"
+
+          # Terraform creates the function; this only ever updates it. If the
+          # function is missing, that is a real error worth failing on rather
+          # than papering over by creating one outside Terraform's state.
+          if ! aws lambda get-function --function-name "$FN" >/dev/null 2>&1; then
+            echo "::error::$FN does not exist. Run terraform apply first -"
+            echo "the functions, role and triggers are defined in terraform/lambdas.tf."
+            exit 1
+          fi
+
+          aws lambda update-function-code \
+            --function-name "$FN" \
+            --zip-file fileb://function.zip \
+            --publish >/dev/null
+
+          # Code and configuration are separate calls, and the second fails
+          # with ResourceConflictException if the first is still settling.
+          aws lambda wait function-updated --function-name "$FN"
+
+          # Only the layer. Timeout and memory belong to Terraform, and setting
+          # them here would fight the next apply.
+          aws lambda update-function-configuration \
+            --function-name "$FN" \
+            --layers "${{ steps.publish.outputs.arn }}" >/dev/null
+
+          aws lambda wait function-updated --function-name "$FN"
+
+      - name: Smoke test kundali
+        if: matrix.name == 'kundali'
+        run: |
+          set -euo pipefail
+          # A real invocation, because "deployed" and "works" are different
+          # claims - a layer built for the wrong architecture deploys perfectly
+          # and then fails on first import.
+          aws lambda invoke \
+            --function-name "${{ matrix.function }}" \
+            --payload '{"date":"1995-08-15","time":"09:30","place":"Jhansi"}' \
+            --cli-binary-format raw-in-base64-out \
+            /tmp/out.json >/dev/null
+
+          cat /tmp/out.json
+          python3 - <<'PY'
+          import json, sys
+          raw = json.load(open('/tmp/out.json'))
+          if 'errorMessage' in raw:
+              sys.exit(f"Lambda raised: {raw['errorMessage']}")
+          body = json.loads(raw['body'])
+          if raw.get('statusCode') != 200:
+              sys.exit(f"Expected 200, got {raw.get('statusCode')}: {body}")
+          assert body['ascendant']['rashi'], 'no ascendant in response'
+          assert body['svg'].startswith('<svg'), 'no chart svg'
+          print('OK:', body['ascendant']['rashi'], 'lagna,', body['nakshatra'])
+          PY
+
+      - name: Remind about the S3 trigger
+        if: matrix.name == 'image_compression'
+        run: |
+          echo "::notice::Code deployed. The S3 trigger is owned by Terraform and is OFF by"
+          echo "::notice::default - set enable_photo_compression_trigger = true in tfvars once"
+          echo "::notice::you have invoked the function by hand and confirmed it does not"
+          echo "::notice::re-trigger itself. It writes into the bucket that triggers it."

@@ -1,12 +1,84 @@
 # Lambdas
 
-Python functions meant to be deployed to AWS by hand. Nothing here is wired
-into the deploy workflow yet.
+Deployed by `.github/workflows/deploy-lambdas.yml` on merge to `main`, when
+anything under `lambdas/**` changes. See [Automated deployment](#automated-deployment)
+for the one-time setup that workflow needs.
 
 | Folder | Trigger | What it does |
 | --- | --- | --- |
 | `image_compression/` | S3 `ObjectCreated:*` on `gahoi-milan-photos` | Shrinks a profile photo in place and writes a thumbnail |
 | `kundali/` | Invoked from the backend | North Indian horoscope chart from birth date, time and place |
+
+---
+
+## Automated deployment
+
+On merge to `main`, for each function the workflow builds its dependency layer
+for `manylinux2014_aarch64`, publishes a new layer version, packages the
+handler, then creates the function if it is missing or updates it if it is not.
+The kundali function is then actually invoked, because "deployed" and "works"
+are different claims - a layer built for the wrong architecture deploys
+perfectly and fails on first import.
+
+### Who owns what
+
+| | Owns |
+| --- | --- |
+| `terraform/lambdas.tf` | the **shape** - execution role, functions, S3 trigger, log retention, concurrency caps, and the CI user's permissions |
+| `.github/workflows/deploy-lambdas.yml` | the **code** - handler zip and dependency layer, on every merge |
+
+Mixing the two means either Terraform rolling back CI's code on the next
+`apply`, or CI needing permission to rewrite infrastructure. Terraform creates
+each function with a placeholder handler and then stops caring what code is in
+it, via `ignore_changes`.
+
+The workflow **cannot create or delete functions** - it fails with a clear
+message if one is missing. A CI key that can delete a production Lambda is a
+worse problem than a manual `terraform apply`.
+
+### One-time setup
+
+```bash
+cd terraform && terraform init && terraform apply
+```
+
+That creates both functions, the execution role, log groups with a retention
+policy, and extends the existing GitHub Actions IAM user with exactly the
+permissions the workflow needs. No new GitHub secret is required -
+`AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` already exist for the backend
+deploy, and Terraform grants them the extra Lambda permissions.
+
+Function names come from `local.name`, so they are
+`gahoi-milan-prod-image-compression` and `gahoi-milan-prod-kundali`. **If you
+change `project` or `environment`, update the matrix in the workflow to match**
+- it looks functions up by name, and a rename makes the deploy fail rather than
+silently deploy to the wrong place.
+
+Until CI has run, both functions contain a placeholder that raises
+`RuntimeError`. Merging anything under `lambdas/**` replaces it.
+
+### Turning on the S3 trigger
+
+Off by default, in `enable_photo_compression_trigger`. This is the one resource
+that can cost real money if the handler misbehaves, because the function writes
+into the bucket that triggers it.
+
+1. Let CI deploy the real code
+2. Invoke it by hand on one object and check the result
+3. Confirm no second invocation follows its own write
+4. Set `enable_photo_compression_trigger = true` and apply
+
+`lambda_reserved_concurrency` defaults to 5 as a second safety valve - if the
+guard ever fails, that caps how fast it can run away. Raise it once you have
+watched real uploads go through.
+
+### What is deliberately left manual
+
+- **Environment variables.** Tuning (`QUALITY`, `MAX_EDGE`) stays in the console
+  so it can change without a deploy - which is why `environment` is in the
+  `ignore_changes` list.
+- **Pruning layer versions.** They are immutable and accumulate. Nothing breaks
+  if you never do it.
 
 ---
 
