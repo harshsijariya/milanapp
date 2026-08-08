@@ -17,6 +17,7 @@ import { useReference } from '../../utils/useReference';
 import { useConnections, connectionAction } from '../../utils/useConnections';
 import PhotoCarousel from '../../components/PhotoCarousel';
 import DetailCard from '../../components/DetailCard';
+import KundaliMatchCard from '../../components/KundaliMatchCard';
 import { rowsFor } from '../../components/sectionRows';
 import {
   colors,
@@ -184,6 +185,13 @@ rows={rowsFor('contact', profile, label)}
               </Text>
             </View>
           )}
+
+          {/* Last, below every detail card, because it is the thing families
+              reach for after reading the rest - and because it costs a Lambda
+              round trip, so it stays a button until asked for. Not shown on
+              your own profile: matching yourself is meaningless, and the
+              backend refuses it anyway. */}
+          {!isMine && !!id && <KundaliMatchCard profileId={id} name={profileName(profile)} />}
 
           <View style={{ height: 100 }} />
         </View>

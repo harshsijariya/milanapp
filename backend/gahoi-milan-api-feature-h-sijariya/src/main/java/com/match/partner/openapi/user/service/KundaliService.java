@@ -2,6 +2,7 @@ package com.match.partner.openapi.user.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.match.partner.common.configuration.ClientException;
 import com.match.partner.openapi.reference.model.dao.City;
 import com.match.partner.openapi.reference.repository.CityRepository;
@@ -143,7 +144,29 @@ public class KundaliService {
             throw new ClientException(HttpStatus.INTERNAL_SERVER_ERROR, "Could not build the request");
         }
 
-        return invoke(matchFunctionName, payload);
+        JsonNode score = invoke(matchFunctionName, payload);
+
+        // The other person's chart travels with the score, so the screen needs
+        // one round trip rather than two. Sharing a kundali is the point of the
+        // exercise in a matrimony context - it is what families exchange - but
+        // note it does encode an exact birth time, so it goes only to a signed-in
+        // member looking at a profile that is visible to them.
+        ObjectNode combined = objectMapper.createObjectNode();
+        combined.set("match", score);
+        combined.set("theirs", readChart(theirs));
+        combined.set("mine", readChart(mine));
+        combined.put("theirName", other.getName());
+        return combined;
+    }
+
+    /** The stored chart as JSON, or null if it will not parse. */
+    private JsonNode readChart(Kundali row) {
+        try {
+            return objectMapper.readTree(row.getChart());
+        } catch (Exception e) {
+            log.warn("Stored kundali for {} is unreadable", row.getUserId());
+            return null;
+        }
     }
 
     /** Whether we can tell this member is female. Unknown counts as not. */
