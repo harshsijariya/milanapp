@@ -28,6 +28,16 @@ locals {
       # cheaper than the extra duration.
       memory = 1024
     }
+    kundali_match = {
+      # Pure stdlib - every koota is a table lookup or small arithmetic on two
+      # integers, so there is no layer and no ephemeris. That is also why it
+      # can stay on arm64/3.12 while kundali cannot.
+      architecture = "arm64"
+      runtime      = "python3.12"
+      name         = "${local.name}-kundali-match"
+      timeout      = 5
+      memory       = 256
+    }
     kundali = {
       name = "${local.name}-kundali"
       # x86_64 and 3.11, forced by pyswisseph: it publishes no aarch64 wheels
@@ -207,9 +217,12 @@ resource "aws_iam_role_policy" "app_invoke_kundali" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Effect   = "Allow"
-      Action   = ["lambda:InvokeFunction"]
-      Resource = aws_lambda_function.this["kundali"].arn
+      Effect = "Allow"
+      Action = ["lambda:InvokeFunction"]
+      Resource = [
+        aws_lambda_function.this["kundali"].arn,
+        aws_lambda_function.this["kundali_match"].arn,
+      ]
     }]
   })
 }

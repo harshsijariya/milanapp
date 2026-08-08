@@ -87,9 +87,30 @@ public class UserProfileController {
      * for anyone but themselves, and cannot feed the service values that are
      * not already on their own record.
      */
+    @GetMapping("/user/kundali")
+    public JsonNode getKundali(@RequestAttribute("username") String userName) {
+        return kundaliService.getOrGenerate(userName, false);
+    }
+
+    /**
+     * Regenerate. POST rather than GET because it is not idempotent - it
+     * spends a Lambda invocation and replaces what is stored.
+     */
     @PostMapping("/user/kundali")
-    public JsonNode generateKundali(@RequestAttribute("username") String userName) {
-        return kundaliService.generateForUser(userName);
+    public JsonNode regenerateKundali(@RequestAttribute("username") String userName) {
+        return kundaliService.getOrGenerate(userName, true);
+    }
+
+    /**
+     * Ashtakoota score between the caller and another member.
+     *
+     * The caller is always one side, taken from the JWT, so this cannot be used
+     * to match two arbitrary strangers against each other.
+     */
+    @GetMapping("/user/kundali/match/{id}")
+    public JsonNode matchKundali(@RequestAttribute("username") String userName,
+                                 @PathVariable("id") String id) {
+        return kundaliService.match(userName, commonUtils.convertFromJMFormat(id));
     }
 
     @GetMapping("/users/{id}")
