@@ -375,6 +375,14 @@ export const attachmentAPI = {
     return response.text();
   },
   setPrimaryImage: (id: number) => api.put(`/attachment/${id}/set-primary`),
+
+  /**
+   * Delete one of your own photos.
+   *
+   * Returns { newPrimaryId } when deleting the primary promoted another, so
+   * the screen can reflect the new main photo without refetching everything.
+   */
+  deleteImage: (id: number) => api.delete(`/attachment/${id}`),
 };
 
 export default api;

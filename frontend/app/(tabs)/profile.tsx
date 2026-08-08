@@ -13,8 +13,6 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { profileAPI, likeAPI } from '../../utils/api';
 import { useGuardedRouter } from '../../utils/useGuardedRouter';
-import { usePhotoUpload } from '../../utils/usePhotoUpload';
-import PhotoCropper from '../../components/PhotoCropper';
 import AppDrawer from '../../components/AppDrawer';
 import KundaliCard from '../../components/KundaliCard';
 import CompletionRing, { ringLabel } from '../../components/CompletionRing';
@@ -85,11 +83,6 @@ export default function ProfileScreen() {
     }
   };
 
-  const { pick, uploading, cropperProps } = usePhotoUpload({
-    count: photos.length,
-    onUploaded: loadData,
-  });
-
   const [menuOpen, setMenuOpen] = useState(false);
 
   const completion = Number(user?.profileCompletion ?? 0);
@@ -126,17 +119,15 @@ export default function ProfileScreen() {
           </TouchableOpacity>
 
           <View style={styles.headerBadges}>
+            {/* Goes to the photo screen rather than straight to the picker.
+                Adding was the only thing this button could do - there was no
+                way to remove a photo or choose which one people see first. */}
             <TouchableOpacity
               style={styles.circleBtn}
-              onPress={pick}
-              disabled={uploading}
-              accessibilityLabel="Add photo"
+              onPress={() => router.push('/manage-photos')}
+              accessibilityLabel="Manage photos"
             >
-              {uploading ? (
-                <ActivityIndicator size="small" color={colors.white} />
-              ) : (
-                <Ionicons name="camera-outline" size={18} color={colors.white} />
-              )}
+              <Ionicons name="camera-outline" size={18} color={colors.white} />
             </TouchableOpacity>
           </View>
         </View>
@@ -254,13 +245,13 @@ rows={rowsFor('contact', user, label)}
         memberId={user?.id}
         avatarUrl={photos?.[0] ?? null}
         items={[
+          { icon: 'images-outline', label: 'Photos', onPress: () => router.push('/manage-photos') },
           { icon: 'create-outline', label: 'Edit Profile', onPress: () => router.push('/edit-profile') },
           { icon: 'settings-outline', label: 'Account & Settings', onPress: () => router.push('/account-settings') },
           { icon: 'headset-outline', label: 'Help & Support', onPress: () => router.push('/help-support') },
         ]}
       />
 
-      <PhotoCropper {...cropperProps} />
     </ScrollView>
   );
 }

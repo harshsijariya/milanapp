@@ -56,6 +56,20 @@ public class S3Controller {
         return ResponseEntity.ok(response);
     }
 
+    /**
+     * Delete one of your own photos.
+     *
+     * No id but your own can be deleted - the service looks the id up among the
+     * caller's attachments rather than fetching it globally.
+     */
+    @DeleteMapping("/{attachmentId}")
+    public ResponseEntity<java.util.Map<String, Object>> deleteImage(
+            @PathVariable Integer attachmentId,
+            @RequestAttribute("username") String userName) {
+        Integer promoted = attachmentService.delete(attachmentId, userName);
+        return ResponseEntity.ok(java.util.Collections.singletonMap("newPrimaryId", promoted));
+    }
+
     @PutMapping("/{attachmentId}/set-primary")
     public ResponseEntity<String> setPrimaryImage(
             @PathVariable Integer attachmentId,
