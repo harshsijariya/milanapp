@@ -27,6 +27,15 @@ type Props = {
   value?: string | string[] | null;
   multi?: boolean;
   searchable?: boolean;
+  /**
+   * Fetch matches from the server instead of filtering `options` locally.
+   *
+   * For a list of a thousand-odd cities, shipping every row to the device just
+   * so it can be filtered there is the wrong trade: it is a slow first render,
+   * a large payload, and it goes stale. With this set, `options` is only the
+   * starting content (recent or popular), and typing queries the API.
+   */
+  onSearch?: (query: string) => Promise<Option[]>;
   onClose: () => void;
   onSave: (value: string | string[]) => void;
 };
@@ -49,6 +58,7 @@ export default function OptionSheet({
   value,
   multi = false,
   searchable,
+  onSearch,
   onClose,
   onSave,
 }: Props) {
@@ -60,6 +70,8 @@ export default function OptionSheet({
   const covered = useCoveredHeight(viewport);
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<string[]>([]);
+  const [remote, setRemote] = useState<Option[] | null>(null);
+  const [searching, setSearching] = useState(false);
 
   // Re-seed on open so a cancelled edit never leaks into the next one.
   useEffect(() => {
@@ -68,13 +80,57 @@ export default function OptionSheet({
     setSelected(value == null ? [] : Array.isArray(value) ? value : [value]);
   }, [visible, value]);
 
-  const showSearch = searchable ?? options.length > 8;
+  const showSearch = searchable ?? (!!onSearch || options.length > 8);
+
+  /**
+   * Remote lookup, debounced.
+   *
+   * 250ms because a request per keystroke would fire five or six times for a
+   * city name and the earlier answers are all thrown away. The cleanup also
+   * marks the effect stale, so a slow response for "ka" cannot land after a
+   * fast one for "kanp" and replace the right results with the wrong ones.
+   */
+  useEffect(() => {
+    if (!onSearch) return;
+
+    const q = query.trim();
+    if (q.length < 2) {
+      setRemote(null);
+      setSearching(false);
+      return;
+    }
+
+    let stale = false;
+    setSearching(true);
+    const timer = setTimeout(() => {
+      onSearch(q)
+        .then((results) => {
+          if (!stale) setRemote(results);
+        })
+        .catch(() => {
+          if (!stale) setRemote([]);
+        })
+        .finally(() => {
+          if (!stale) setSearching(false);
+        });
+    }, 250);
+
+    return () => {
+      stale = true;
+      clearTimeout(timer);
+    };
+  }, [query, onSearch]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
+    if (onSearch) {
+      // Below the minimum query length the starting list is the right thing to
+      // show - it is the popular cities, not an empty screen.
+      return remote ?? options;
+    }
     if (!q) return options;
     return options.filter((o) => o.label.toLowerCase().includes(q));
-  }, [options, query]);
+  }, [options, query, onSearch, remote]);
 
   const selectedChips = useMemo(
     () =>

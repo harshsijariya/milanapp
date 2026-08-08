@@ -3,6 +3,8 @@ package com.match.partner.openapi.user.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.match.partner.common.configuration.ClientException;
+import com.match.partner.openapi.reference.model.dao.City;
+import com.match.partner.openapi.reference.repository.CityRepository;
 import com.match.partner.openapi.user.model.dao.Kundali;
 import com.match.partner.openapi.user.model.dao.UserProfile;
 import com.match.partner.openapi.user.repository.KundaliRepository;
@@ -51,6 +53,7 @@ public class KundaliService {
 
     private final UserProfileRepository userProfileRepository;
     private final KundaliRepository kundaliRepository;
+    private final CityRepository cityRepository;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Value("${kundali.function-name:gahoi-milan-prod-kundali}")
@@ -281,6 +284,13 @@ public class KundaliService {
         String tob = profile.getTimeOfBirth();
         String pob = profile.getPlaceOfBirth();
 
+        // Coordinates, not the name. The function carries a short list of known
+        // cities as a convenience, and anything outside it is a 400 - which is
+        // exactly what happened, because birth place used to be free text and
+        // the stored values include "Nihal" and "Hdhdjd". Resolving the city
+        // here means the function is given a real location every time.
+        City city = resolveCity(pob);
+
         String payload;
         try {
             payload = objectMapper.writeValueAsString(Map.of(
@@ -288,7 +298,9 @@ public class KundaliService {
                     // The Lambda wants HH:MM. The column holds a SQL time, which
                     // arrives as HH:MM:SS.
                     "time", tob.length() >= 5 ? tob.substring(0, 5) : tob,
-                    "place", pob
+                    "place", city.getName(),
+                    "latitude", city.getLatitude(),
+                    "longitude", city.getLongitude()
             ));
         } catch (Exception e) {
             throw new ClientException(HttpStatus.INTERNAL_SERVER_ERROR, "Could not build the request");
@@ -343,6 +355,37 @@ public class KundaliService {
         }
 
         return body;
+    }
+
+    /**
+     * The city a birth place refers to.
+     *
+     * Birth place is stored as a name rather than a city id, because it was
+     * free text long before the dropdown existed and the old values have to
+     * keep resolving. An exact, case-insensitive match ordered by tier picks
+     * the well-known city when a name repeats.
+     *
+     * Anything unrecognised is refused rather than guessed. A fuzzy match here
+     * would silently compute a chart for the wrong place, and a chart built on
+     * the wrong location is wrong in every house - while still looking
+     * completely normal.
+     */
+    private City resolveCity(String placeOfBirth) {
+        List<City> hits = cityRepository.findByNameIgnoreCaseOrderByTierAsc(placeOfBirth.trim());
+
+        if (hits.isEmpty()) {
+            throw new ClientException(HttpStatus.BAD_REQUEST,
+                    "We do not recognise '" + placeOfBirth + "' as a city. Please pick your "
+                            + "birth place from the list in your profile.");
+        }
+
+        City city = hits.get(0);
+        if (city.getLatitude() == null || city.getLongitude() == null) {
+            throw new ClientException(HttpStatus.BAD_REQUEST,
+                    "We do not have the location of " + city.getName() + " yet, so a kundali "
+                            + "cannot be calculated. Please contact support.");
+        }
+        return city;
     }
 
     private LambdaClient client() {

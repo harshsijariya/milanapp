@@ -87,11 +87,19 @@ public class ReferenceController {
     public ResponseEntity<List<CityDto>> cities(@RequestParam(required = false) Integer stateId,
                                                 @RequestParam(required = false) String stateCode,
                                                 @RequestParam(required = false) String search,
+                                                @RequestParam(required = false) Integer limit,
                                                 @RequestParam(required = false) Integer maxTier) {
 
         if (search != null && !search.isBlank()) {
-            return ResponseEntity.ok(toDtos(
-                    cityRepository.findByNameContainingIgnoreCaseOrderByTierAscNameAsc(search.trim())));
+            // Bounded and ranked - see CityRepository.search. A one-letter query
+            // is refused rather than served, because it matches most of the
+            // table and the member has not told us anything yet.
+            String q = search.trim();
+            if (q.length() < 2) {
+                return ResponseEntity.ok(List.of());
+            }
+            int capped = Math.min(Math.max(limit == null ? 25 : limit, 1), 50);
+            return ResponseEntity.ok(toDtos(cityRepository.search(q, capped)));
         }
 
         Integer resolved = stateId;
